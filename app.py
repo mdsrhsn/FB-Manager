@@ -10,8 +10,7 @@ from flask import Flask, render_template, redirect, url_for, request, flash, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from sqlalchemy import func, extract
 
-from models import db, User, FBAccount, BusinessManager, Page, DailyReport, TeamPayment, init_dbm
-
+from models import db, User, FBAccount, BusinessManager, Page, DailyReport, TeamPayment, init_db
 # ==================== APP CONFIG ====================
 app = Flask(__name__)
 with app.app_context():
