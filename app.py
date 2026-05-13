@@ -10,7 +10,7 @@ from flask import Flask, render_template, redirect, url_for, request, flash, jso
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
 from sqlalchemy import func, extract
 
-from models import db, User, FBAccount, BusinessManager, Page, DailyReport, TeamPayment, init_db
+from models import db, User, FBAccount, BusinessManager, Page, DailyReport, TeamPayment, init_dbm
 
 # ==================== APP CONFIG ====================
 app = Flask(__name__)
@@ -543,6 +543,3 @@ if __name__ == '__main__':
         db.create_all()
 
     app.run(host="0.0.0.0", port=5000)
-    git add .
-git commit -m "Fixed SQLAlchemy app context"
-git push
