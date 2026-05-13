@@ -14,6 +14,8 @@ from models import db, User, FBAccount, BusinessManager, Page, DailyReport, Team
 
 # ==================== APP CONFIG ====================
 app = Flask(__name__)
+with app.app_context():
+    db.create_all()
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-in-production-12345')
 
 # Database - Railway pe PostgreSQL ya local SQLite
