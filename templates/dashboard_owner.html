@@ -1,0 +1,138 @@
+{% extends 'base.html' %}
+{% block page_title %}Owner Dashboard{% endblock %}
+
+{% block content %}
+<!-- TOP STATS -->
+<div class="stats-grid">
+    <div class="stat-card success">
+        <div class="stat-label">Today's Earnings 💰</div>
+        <div class="stat-value">${{ "%.2f"|format(total_earnings_today) }}</div>
+        <div class="stat-sub">Sirf aap ko dikh raha hai</div>
+    </div>
+    
+    <div class="stat-card success">
+        <div class="stat-label">Last 30 Days 💵</div>
+        <div class="stat-value">${{ "%.2f"|format(total_earnings_30d) }}</div>
+        <div class="stat-sub">{{ "{:,}".format(total_views_30d) }} views</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Total Pages</div>
+        <div class="stat-value">{{ total_pages }}</div>
+        <div class="stat-sub">{{ total_fb_accounts }} FB Accounts</div>
+    </div>
+    
+    <div class="stat-card success">
+        <div class="stat-label">Monetized ✅</div>
+        <div class="stat-value">{{ monetized_pages }}</div>
+        <div class="stat-sub">{{ in_review }} in review</div>
+    </div>
+    
+    <div class="stat-card warning">
+        <div class="stat-label">Non-Monetized</div>
+        <div class="stat-value">{{ non_monetized }}</div>
+        <div class="stat-sub">Build karna hai</div>
+    </div>
+    
+    <div class="stat-card warning">
+        <div class="stat-label">Pending from FB</div>
+        <div class="stat-value">${{ "%.2f"|format(pending_fb_payments) }}</div>
+        <div class="stat-sub">FB se receive karna hai</div>
+    </div>
+    
+    <div class="stat-card danger">
+        <div class="stat-label">Pending Team Payments</div>
+        <div class="stat-value">PKR {{ "{:,.0f}".format(pending_team_payments) }}</div>
+        <div class="stat-sub">Team ko ada karna hai</div>
+    </div>
+</div>
+
+<!-- CHARTS -->
+<div class="card">
+    <div class="card-title">📈 Last 7 Days Performance</div>
+    <div class="chart-container">
+        <canvas id="performanceChart"></canvas>
+    </div>
+</div>
+
+<!-- TOP PAGES -->
+<div class="card">
+    <div class="card-title">
+        🏆 Top Earning Pages (Last 30 Days)
+        <a href="{{ url_for('pages') }}" class="btn btn-primary btn-sm">View All</a>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Page Name</th>
+                    <th>Views (30d)</th>
+                    <th>Earnings (30d)</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in top_pages %}
+                <tr>
+                    <td>{{ loop.index }}</td>
+                    <td class="text-bold">{{ p.page_name }}</td>
+                    <td>{{ "{:,}".format(p.views or 0) }}</td>
+                    <td class="text-success text-bold">${{ "%.2f"|format(p.earnings or 0) }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-center text-muted">Abhi tak koi report nahi</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const chartData = {{ chart_data | tojson }};
+const ctx = document.getElementById('performanceChart');
+new Chart(ctx, {
+    type: 'line',
+    data: {
+        labels: chartData.map(d => d.date),
+        datasets: [
+            {
+                label: 'Earnings ($)',
+                data: chartData.map(d => d.earnings),
+                borderColor: '#42b72a',
+                backgroundColor: 'rgba(66, 183, 42, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y'
+            },
+            {
+                label: 'Views',
+                data: chartData.map(d => d.views),
+                borderColor: '#1877f2',
+                backgroundColor: 'rgba(24, 119, 242, 0.1)',
+                tension: 0.3,
+                yAxisID: 'y1'
+            }
+        ]
+    },
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
+        scales: {
+            y: { 
+                type: 'linear', 
+                position: 'left', 
+                title: { display: true, text: 'Earnings ($)' }
+            },
+            y1: { 
+                type: 'linear', 
+                position: 'right', 
+                title: { display: true, text: 'Views' },
+                grid: { drawOnChartArea: false }
+            }
+        }
+    }
+});
+</script>
+{% endblock %}

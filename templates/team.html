@@ -1,0 +1,43 @@
+{% extends 'base.html' %}
+{% block page_title %}Team Management{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-title">
+        👥 Team Members ({{ members|length }})
+        {% if current_user.is_owner() %}
+        <a href="{{ url_for('add_team_member') }}" class="btn btn-primary btn-sm">+ Add Member</a>
+        {% endif %}
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Username</th>
+                    <th>Role</th>
+                    <th>Supervisor</th>
+                    <th>Phone</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for m in members %}
+                <tr>
+                    <td class="text-bold">{{ m.full_name }}</td>
+                    <td>{{ m.username }}</td>
+                    <td><span class="user-badge badge-{{ m.role }}">{{ m.role }}</span></td>
+                    <td>{{ m.supervisor.full_name if m.supervisor else '-' }}</td>
+                    <td>{{ m.phone or '-' }}</td>
+                    <td><span class="status-badge status-{% if m.is_active %}active{% else %}suspended{% endif %}">
+                        {% if m.is_active %}Active{% else %}Inactive{% endif %}
+                    </span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted">Koi team member nahi</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

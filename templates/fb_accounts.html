@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block page_title %}Facebook Accounts{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-title">
+        🔑 All Facebook Accounts ({{ accounts|length }})
+        {% if current_user.is_owner() %}
+        <a href="{{ url_for('add_fb_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
+        {% endif %}
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Account Name</th>
+                    <th>Email/Phone</th>
+                    <th>Pages</th>
+                    <th>BMs</th>
+                    <th>Purchase Date</th>
+                    {% if current_user.is_owner() %}<th>Cost</th>{% endif %}
+                    <th>Status</th>
+                    {% if current_user.is_owner() %}<th>Action</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in accounts %}
+                <tr>
+                    <td class="text-bold">{{ a.account_name }}</td>
+                    <td>
+                        {% if a.email %}<div style="font-size:0.85rem">{{ a.email }}</div>{% endif %}
+                        {% if a.phone %}<div style="font-size:0.85rem" class="text-muted">{{ a.phone }}</div>{% endif %}
+                    </td>
+                    <td>{{ a.pages|length }}</td>
+                    <td>{{ a.business_managers|length }}</td>
+                    <td>{{ a.purchase_date.strftime('%d %b %Y') if a.purchase_date else '-' }}</td>
+                    {% if current_user.is_owner() %}
+                    <td>PKR {{ "{:,.0f}".format(a.purchase_cost or 0) }}</td>
+                    {% endif %}
+                    <td><span class="status-badge status-{{ a.status }}">{{ a.status }}</span></td>
+                    {% if current_user.is_owner() %}
+                    <td><a href="{{ url_for('edit_fb_account', account_id=a.id) }}" class="btn btn-secondary btn-sm">Edit</a></td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="text-center text-muted">Koi FB account add nahi kiya</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

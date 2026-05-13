@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block page_title %}{% if page %}Edit{% else %}Add{% endif %} Page{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 800px;">
+    <form method="POST">
+        <div class="form-group">
+            <label>Page Name *</label>
+            <input type="text" name="page_name" class="form-control" required value="{{ page.page_name if page else '' }}">
+        </div>
+        
+        <div class="form-group">
+            <label>Page URL</label>
+            <input type="url" name="page_url" class="form-control" value="{{ page.page_url if page else '' }}" placeholder="https://facebook.com/...">
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>FB Account *</label>
+                <select name="fb_account_id" class="form-control" required>
+                    <option value="">-- Select --</option>
+                    {% for a in fb_accounts %}
+                    <option value="{{ a.id }}" {% if page and page.fb_account_id == a.id %}selected{% endif %}>{{ a.account_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Business Manager</label>
+                <select name="bm_id" class="form-control">
+                    <option value="">-- None --</option>
+                    {% for b in bms %}
+                    <option value="{{ b.id }}" {% if page and page.bm_id == b.id %}selected{% endif %}>{{ b.bm_name }}</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>Niche</label>
+                <input type="text" name="niche" class="form-control" value="{{ page.niche if page else '' }}" placeholder="Comedy, News, Animals...">
+            </div>
+            <div class="form-group">
+                <label>Assigned Worker</label>
+                <select name="assigned_worker_id" class="form-control">
+                    <option value="">-- Unassigned --</option>
+                    {% for w in workers %}
+                    <option value="{{ w.id }}" {% if page and page.assigned_worker_id == w.id %}selected{% endif %}>{{ w.full_name }} ({{ w.role }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>Monetization Status</label>
+                <select name="monetization_status" class="form-control">
+                    {% for s in ['non_monetized', 'in_review', 'monetized', 'suspended'] %}
+                    <option value="{{ s }}" {% if page and page.monetization_status == s %}selected{% endif %}>
+                        {{ s.replace('_', ' ').title() }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>Monetized Date</label>
+                <input type="date" name="monetized_date" class="form-control" value="{{ page.monetized_date.strftime('%Y-%m-%d') if page and page.monetized_date else '' }}">
+            </div>
+        </div>
+        
+        <div class="form-group">
+            <label>Page Created Date</label>
+            <input type="date" name="page_created_date" class="form-control" value="{{ page.page_created_date.strftime('%Y-%m-%d') if page and page.page_created_date else '' }}">
+        </div>
+        
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea name="notes" class="form-control" rows="3">{{ page.notes if page else '' }}</textarea>
+        </div>
+        
+        <div class="flex">
+            <button type="submit" class="btn btn-primary">{% if page %}Update{% else %}Save{% endif %} Page</button>
+            <a href="{{ url_for('pages') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

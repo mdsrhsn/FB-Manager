@@ -1,0 +1,59 @@
+{% extends 'base.html' %}
+{% block page_title %}Reports History{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-title">
+        📈 Reports (Last {{ days }} Days)
+        <div class="flex">
+            <a href="?days=1" class="btn btn-sm {% if days==1 %}btn-primary{% else %}btn-secondary{% endif %}">Today</a>
+            <a href="?days=7" class="btn btn-sm {% if days==7 %}btn-primary{% else %}btn-secondary{% endif %}">7 Days</a>
+            <a href="?days=30" class="btn btn-sm {% if days==30 %}btn-primary{% else %}btn-secondary{% endif %}">30 Days</a>
+        </div>
+    </div>
+    
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date</th>
+                    <th>Page</th>
+                    <th>Worker</th>
+                    <th>Views</th>
+                    <th>Reach</th>
+                    <th>Followers</th>
+                    {% if current_user.is_owner() %}<th>Earnings 💰</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for r in reports %}
+                <tr>
+                    <td>{{ r.report_date.strftime('%d %b') }}</td>
+                    <td class="text-bold">{{ r.page.page_name }}</td>
+                    <td>{{ r.worker.full_name }}</td>
+                    <td>{{ "{:,}".format(r.views or 0) }}</td>
+                    <td>{{ "{:,}".format(r.reach or 0) }}</td>
+                    <td>+{{ r.followers_gained or 0 }}</td>
+                    {% if current_user.is_owner() %}
+                    <td class="text-success text-bold">${{ "%.2f"|format(r.earnings_usd or 0) }}</td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center text-muted">Koi report nahi mili</td></tr>
+                {% endfor %}
+            </tbody>
+            {% if reports and current_user.is_owner() %}
+            <tfoot>
+                <tr style="background: var(--gray-light); font-weight: 700;">
+                    <td colspan="3">TOTAL</td>
+                    <td>{{ "{:,}".format(reports|sum(attribute='views')) }}</td>
+                    <td>{{ "{:,}".format(reports|sum(attribute='reach')) }}</td>
+                    <td>+{{ reports|sum(attribute='followers_gained') }}</td>
+                    <td class="text-success">${{ "%.2f"|format(reports|sum(attribute='earnings_usd')) }}</td>
+                </tr>
+            </tfoot>
+            {% endif %}
+        </table>
+    </div>
+</div>
+{% endblock %}

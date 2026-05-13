@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block page_title %}Supervisor Dashboard{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">My Team Workers</div>
+        <div class="stat-value">{{ team_workers|length }}</div>
+        <div class="stat-sub">Active members</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Team Pages</div>
+        <div class="stat-value">{{ total_team_pages }}</div>
+        <div class="stat-sub">Managed by team</div>
+    </div>
+    
+    <div class="stat-card success">
+        <div class="stat-label">Monetized Pages</div>
+        <div class="stat-value">{{ monetized_pages }}</div>
+    </div>
+    
+    <div class="stat-card warning">
+        <div class="stat-label">Non-Monetized</div>
+        <div class="stat-value">{{ non_monetized }}</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Team Views (7d)</div>
+        <div class="stat-value">{{ "{:,}".format(team_views or 0) }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">👥 My Team</div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr><th>Name</th><th>Username</th><th>Phone</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                {% for w in team_workers %}
+                <tr>
+                    <td class="text-bold">{{ w.full_name }}</td>
+                    <td>{{ w.username }}</td>
+                    <td>{{ w.phone or '-' }}</td>
+                    <td><span class="status-badge status-{% if w.is_active %}active{% else %}suspended{% endif %}">
+                        {% if w.is_active %}Active{% else %}Inactive{% endif %}
+                    </span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="4" class="text-center text-muted">Koi team member nahi</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

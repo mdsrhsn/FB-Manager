@@ -1,0 +1,91 @@
+{% extends 'base.html' %}
+{% block page_title %}Team Payments{% endblock %}
+
+{% block content %}
+<!-- Summary -->
+<div class="stats-grid">
+    <div class="stat-card warning">
+        <div class="stat-label">Pending from FB</div>
+        <div class="stat-value">${{ "%.2f"|format(total_pending_fb) }}</div>
+        <div class="stat-sub">FB se receive karna hai</div>
+    </div>
+    <div class="stat-card danger">
+        <div class="stat-label">Pending Team Payments</div>
+        <div class="stat-value">PKR {{ "{:,.0f}".format(total_pending_pay) }}</div>
+        <div class="stat-sub">Team ko ada karna hai</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-label">Total Paid</div>
+        <div class="stat-value">PKR {{ "{:,.0f}".format(total_paid) }}</div>
+        <div class="stat-sub">All time</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">
+        💰 All Payments
+        <a href="{{ url_for('add_payment') }}" class="btn btn-primary btn-sm">+ Add Payment Entry</a>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Month</th>
+                    <th>Member</th>
+                    <th>Earned ($)</th>
+                    <th>To Pay (PKR)</th>
+                    <th>FB Received</th>
+                    <th>Paid</th>
+                    <th>Status</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in payments %}
+                <tr>
+                    <td>{{ p.month }}</td>
+                    <td class="text-bold">{{ p.user.full_name }} <span class="text-muted">({{ p.user.role }})</span></td>
+                    <td class="text-success">${{ "%.2f"|format(p.total_earned_usd) }}</td>
+                    <td>PKR {{ "{:,.0f}".format(p.agreed_amount_pkr) }}</td>
+                    <td>
+                        {% if p.received_from_fb %}
+                            ✅ {{ p.received_date.strftime('%d %b') if p.received_date else '' }}
+                        {% else %}
+                            <form method="POST" action="{{ url_for('mark_received', pid=p.id) }}" style="display:inline">
+                                <button class="btn btn-sm btn-warning">Mark Received</button>
+                            </form>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if p.paid_to_member %}
+                            ✅ {{ p.payment_date.strftime('%d %b') if p.payment_date else '' }}
+                            <br><small>{{ p.payment_method }}</small>
+                        {% elif p.received_from_fb %}
+                            <button class="btn btn-sm btn-success" onclick="document.getElementById('pay-{{p.id}}').style.display='block'">Mark Paid</button>
+                            <div id="pay-{{p.id}}" style="display:none; margin-top:0.5rem;">
+                                <form method="POST" action="{{ url_for('mark_paid', pid=p.id) }}">
+                                    <select name="payment_method" class="form-control" style="margin-bottom:0.3rem;">
+                                        <option>Cash</option>
+                                        <option>Bank Transfer</option>
+                                        <option>EasyPaisa</option>
+                                        <option>JazzCash</option>
+                                    </select>
+                                    <input type="text" name="payment_reference" placeholder="Transaction Ref" class="form-control" style="margin-bottom:0.3rem;">
+                                    <button class="btn btn-sm btn-success">Confirm Paid</button>
+                                </form>
+                            </div>
+                        {% else %}
+                            <span class="text-muted">Wait FB</span>
+                        {% endif %}
+                    </td>
+                    <td><span class="status-badge status-{{ p.status }}">{{ p.status.title() }}</span></td>
+                    <td>{{ p.notes or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="8" class="text-center text-muted">Koi payment entry nahi</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

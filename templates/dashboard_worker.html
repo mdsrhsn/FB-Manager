@@ -1,0 +1,56 @@
+{% extends 'base.html' %}
+{% block page_title %}My Dashboard{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">My Pages</div>
+        <div class="stat-value">{{ total_pages_assigned }}</div>
+        <div class="stat-sub">Assigned to me</div>
+    </div>
+    
+    <div class="stat-card success">
+        <div class="stat-label">Today's Reports ✅</div>
+        <div class="stat-value">{{ today_reports }}</div>
+        <div class="stat-sub">Submitted today</div>
+    </div>
+    
+    <div class="stat-card warning">
+        <div class="stat-label">Pending Reports</div>
+        <div class="stat-value">{{ pending_reports }}</div>
+        <div class="stat-sub">Aaj submit karne hain</div>
+    </div>
+    
+    <div class="stat-card">
+        <div class="stat-label">Views (Last 7 days)</div>
+        <div class="stat-value">{{ "{:,}".format(my_views or 0) }}</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title">
+        📄 My Assigned Pages
+        <a href="{{ url_for('submit_report') }}" class="btn btn-primary btn-sm">Submit Report</a>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr><th>Page Name</th><th>Niche</th><th>Status</th></tr>
+            </thead>
+            <tbody>
+                {% for p in my_pages %}
+                <tr>
+                    <td class="text-bold">{{ p.page_name }}</td>
+                    <td>{{ p.niche or '-' }}</td>
+                    <td><span class="status-badge status-{{ p.monetization_status }}">
+                        {{ p.monetization_status.replace('_', ' ').title() }}
+                    </span></td>
+                </tr>
+                {% else %}
+                <tr><td colspan="3" class="text-center text-muted">Koi page assign nahi hua</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

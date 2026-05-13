@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+{% block page_title %}Submit Daily Report{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 700px;">
+    <div class="card-title">📝 Today's Report ({{ today.strftime('%d %b %Y') }})</div>
+    
+    <form method="POST">
+        <div class="form-group">
+            <label>Report Date</label>
+            <input type="date" name="report_date" class="form-control" value="{{ today.strftime('%Y-%m-%d') }}">
+        </div>
+        
+        <div class="form-group">
+            <label>Select Page *</label>
+            <select name="page_id" class="form-control" required>
+                <option value="">-- Select Page --</option>
+                {% for p in pages %}
+                <option value="{{ p.id }}">
+                    {{ p.page_name }} ({{ p.monetization_status }})
+                    {% if p.id in submitted_page_ids %} ✅ Already Submitted{% endif %}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>Views *</label>
+                <input type="number" name="views" class="form-control" required min="0" value="0">
+            </div>
+            <div class="form-group">
+                <label>Reach</label>
+                <input type="number" name="reach" class="form-control" min="0" value="0">
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>New Followers</label>
+                <input type="number" name="followers_gained" class="form-control" min="0" value="0">
+            </div>
+            
+            {% if current_user.is_owner() %}
+            <div class="form-group">
+                <label>Earnings ($) <span class="text-muted" style="font-size:0.8rem">— Owner Only</span></label>
+                <input type="number" step="0.01" name="earnings_usd" class="form-control" min="0" value="0">
+            </div>
+            {% endif %}
+        </div>
+        
+        <div class="form-group">
+            <label>Notes (optional)</label>
+            <textarea name="notes" class="form-control" rows="2"></textarea>
+        </div>
+        
+        <button type="submit" class="btn btn-primary">Submit Report</button>
+    </form>
+</div>
+
+<div class="card">
+    <div class="card-title">✅ Today's Submitted Reports ({{ submitted_page_ids|length }})</div>
+    <p class="text-muted">Aap ne aaj {{ submitted_page_ids|length }} pages ke liye report submit ki hai.</p>
+</div>
+{% endblock %}

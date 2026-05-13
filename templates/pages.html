@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block page_title %}Pages{% endblock %}
+
+{% block content %}
+<div class="card">
+    <div class="card-title">
+        📄 All Pages ({{ pages|length }})
+        {% if current_user.is_owner() %}
+        <a href="{{ url_for('add_page') }}" class="btn btn-primary btn-sm">+ Add Page</a>
+        {% endif %}
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Page Name</th>
+                    <th>FB Account</th>
+                    <th>BM</th>
+                    <th>Niche</th>
+                    <th>Worker</th>
+                    <th>Status</th>
+                    {% if current_user.is_owner() %}<th>Action</th>{% endif %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in pages %}
+                <tr>
+                    <td>
+                        <div class="text-bold">{{ p.page_name }}</div>
+                        {% if p.page_url %}<a href="{{ p.page_url }}" target="_blank" style="font-size:0.8rem">{{ p.page_url[:40] }}...</a>{% endif %}
+                    </td>
+                    <td>{{ p.fb_account.account_name if p.fb_account else '-' }}</td>
+                    <td>{{ p.business_manager.bm_name if p.business_manager else '-' }}</td>
+                    <td>{{ p.niche or '-' }}</td>
+                    <td>{{ p.assigned_worker.full_name if p.assigned_worker else '-' }}</td>
+                    <td><span class="status-badge status-{{ p.monetization_status }}">
+                        {{ p.monetization_status.replace('_', ' ').title() }}
+                    </span></td>
+                    {% if current_user.is_owner() %}
+                    <td><a href="{{ url_for('edit_page', page_id=p.id) }}" class="btn btn-secondary btn-sm">Edit</a></td>
+                    {% endif %}
+                </tr>
+                {% else %}
+                <tr><td colspan="7" class="text-center text-muted">Koi page nahi mila</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
