@@ -15,7 +15,6 @@ from models import db, User, FBAccount, BusinessManager, Page, DailyReport, Team
 # ==================== APP CONFIG ====================
 app = Flask(__name__)
 with app.app_context():
-    db.create_all()
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'change-this-secret-in-production-12345')
 
 # Database - Railway pe PostgreSQL ya local SQLite
@@ -539,3 +538,11 @@ if __name__ == '__main__':
     init_db(app)
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=True)
+    if __name__ == "__main__":
+    with app.app_context():
+        db.create_all()
+
+    app.run(host="0.0.0.0", port=5000)
+    git add .
+git commit -m "Fixed SQLAlchemy app context"
+git push
