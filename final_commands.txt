@@ -1,5 +1,0 @@
-pip install pandas openpyxl
-
-git add .
-git commit -m "Added excel import export and fb credentials"
-git push

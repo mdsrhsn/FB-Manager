@@ -3,10 +3,17 @@
 
 {% block content %}
 <div class="card">
-    <div class="card-title">
-        📄 All Pages ({{ pages|length }})
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>📄 All Pages ({{ pages|length }})</div>
         {% if current_user.is_owner() %}
-        <a href="{{ url_for('add_page') }}" class="btn btn-primary btn-sm">+ Add Page</a>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <a href="{{ url_for('add_page') }}" class="btn btn-primary btn-sm">➕ Add Page</a>
+            <button type="button" onclick="document.getElementById('importModal').style.display='flex'" 
+                    class="btn btn-sm" style="background: #42b72a; color: white;">📥 Import Excel</button>
+            <a href="{{ url_for('export_pages') }}" 
+               class="btn btn-sm" style="background: #f59e0b; color: white;">📤 Export Excel</a>
+            <a href="{{ url_for('pages_template') }}" class="btn btn-sm btn-secondary">📄 Template</a>
+        </div>
         {% endif %}
     </div>
     <div class="table-wrapper">
@@ -47,4 +54,39 @@
         </table>
     </div>
 </div>
+
+{% if current_user.is_owner() %}
+<div id="importModal" 
+     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
+            background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+    <div style="background:white; padding:30px; border-radius:8px; max-width:500px; width:90%;">
+        <h3 style="margin-bottom: 16px;">📥 Import Pages from Excel</h3>
+        <div style="background: #fff3cd; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px;">
+            <strong>⚠️ Hidayat:</strong>
+            <ul style="margin: 8px 0 0 20px; padding: 0;">
+                <li>Pehle FB Accounts add karen, phir pages import karen</li>
+                <li>FB Account naam exact match honi chahiye</li>
+                <li>Template Download karen pehle</li>
+            </ul>
+        </div>
+        <form method="POST" action="{{ url_for('import_pages') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Excel File (.xlsx)</label>
+                <input type="file" name="excel_file" accept=".xlsx,.xls" required class="form-control">
+            </div>
+            <div style="display: flex; gap: 10px; margin-top: 16px;">
+                <button type="submit" class="btn btn-primary">📥 Upload & Import</button>
+                <button type="button" onclick="document.getElementById('importModal').style.display='none'" 
+                        class="btn btn-secondary">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+
+<script>
+document.getElementById('importModal')?.addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+});
+</script>
+{% endif %}
 {% endblock %}

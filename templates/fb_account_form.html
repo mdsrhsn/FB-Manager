@@ -2,8 +2,10 @@
 {% block page_title %}{% if account %}Edit{% else %}Add{% endif %} FB Account{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 700px;">
-    <form method="POST">
+<div class="card" style="max-width: 800px;">
+    <form method="POST" autocomplete="off">
+        <h3 style="margin-bottom: 16px; color: #1877F2;">📝 Basic Info</h3>
+        
         <div class="form-group">
             <label>Account Name *</label>
             <input type="text" name="account_name" class="form-control" required value="{{ account.account_name if account else '' }}">
@@ -12,13 +14,59 @@
         <div class="form-row">
             <div class="form-group">
                 <label>Email</label>
-                <input type="email" name="email" class="form-control" value="{{ account.email if account else '' }}">
+                <input type="email" name="email" class="form-control" value="{{ account.email if account else '' }}" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>Phone</label>
-                <input type="text" name="phone" class="form-control" value="{{ account.phone if account else '' }}">
+                <input type="text" name="phone" class="form-control" value="{{ account.phone if account else '' }}" autocomplete="off">
             </div>
         </div>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+        
+        <h3 style="margin-bottom: 16px; color: #d62976;">🔐 Login Credentials (Encrypted)</h3>
+        <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+            ⚠️ Yeh sensitive data hai — sirf owner ke liye visible
+        </p>
+        
+        <div class="form-group">
+            <label>FB Password {% if account and account.fb_password %}<span style="color: #28a745; font-size: 12px;">(Already saved, encrypted — khali rakhen agar change nahi karna)</span>{% endif %}</label>
+            <div style="position: relative;">
+                <input type="password" name="fb_password" id="fb_password" class="form-control" 
+                       value="{{ account.get_fb_password() if account else '' }}" 
+                       autocomplete="new-password"
+                       style="padding-right: 50px;">
+                <button type="button" onclick="togglePassword('fb_password', this)" 
+                        style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 4px 8px; font-size: 13px; color: #1877F2;">
+                    👁️ Show
+                </button>
+            </div>
+        </div>
+        
+        <div class="form-row">
+            <div class="form-group">
+                <label>Recovery Email</label>
+                <input type="email" name="recovery_email" class="form-control" 
+                       value="{{ account.recovery_email if account else '' }}" autocomplete="off">
+            </div>
+            <div class="form-group">
+                <label>2FA Backup Code</label>
+                <div style="position: relative;">
+                    <input type="password" name="two_fa_code" id="two_fa_code" class="form-control" 
+                           value="{{ account.get_two_fa_code() if account else '' }}" 
+                           autocomplete="off"
+                           style="padding-right: 50px;">
+                    <button type="button" onclick="togglePassword('two_fa_code', this)" 
+                            style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 4px 8px; font-size: 13px; color: #1877F2;">
+                        👁️ Show
+                    </button>
+                </div>
+            </div>
+        </div>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+        
+        <h3 style="margin-bottom: 16px; color: #42b72a;">💰 Purchase Details</h3>
         
         <div class="form-row">
             <div class="form-group">
@@ -51,4 +99,17 @@
         </div>
     </form>
 </div>
+
+<script>
+function togglePassword(fieldId, btn) {
+    const field = document.getElementById(fieldId);
+    if (field.type === 'password') {
+        field.type = 'text';
+        btn.innerHTML = '🙈 Hide';
+    } else {
+        field.type = 'password';
+        btn.innerHTML = '👁️ Show';
+    }
+}
+</script>
 {% endblock %}

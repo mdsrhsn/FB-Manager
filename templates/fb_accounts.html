@@ -3,18 +3,40 @@
 
 {% block content %}
 <div class="card">
-    <div class="card-title">
-        🔑 All Facebook Accounts ({{ accounts|length }})
+    <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+        <div>🔑 All Facebook Accounts ({{ accounts|length }})</div>
+        
         {% if current_user.is_owner() %}
-        <a href="{{ url_for('add_fb_account') }}" class="btn btn-primary btn-sm">+ Add Account</a>
+        <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <a href="{{ url_for('add_fb_account') }}" class="btn btn-primary btn-sm">
+                ➕ Add Account
+            </a>
+            
+            <button type="button" onclick="document.getElementById('importModal').style.display='flex'" 
+                    class="btn btn-sm" style="background: #42b72a; color: white;">
+                📥 Import Excel
+            </button>
+            
+            <a href="{{ url_for('export_fb_accounts') }}" 
+               class="btn btn-sm" style="background: #f59e0b; color: white;">
+                📤 Export Excel
+            </a>
+            
+            <a href="{{ url_for('fb_accounts_template') }}" 
+               class="btn btn-sm btn-secondary">
+                📄 Download Template
+            </a>
+        </div>
         {% endif %}
     </div>
+    
     <div class="table-wrapper">
         <table>
             <thead>
                 <tr>
                     <th>Account Name</th>
                     <th>Email/Phone</th>
+                    {% if current_user.is_owner() %}<th>Password</th>{% endif %}
                     <th>Pages</th>
                     <th>BMs</th>
                     <th>Purchase Date</th>
@@ -31,6 +53,29 @@
                         {% if a.email %}<div style="font-size:0.85rem">{{ a.email }}</div>{% endif %}
                         {% if a.phone %}<div style="font-size:0.85rem" class="text-muted">{{ a.phone }}</div>{% endif %}
                     </td>
+                    
+                    {% if current_user.is_owner() %}
+                    <td>
+                        {% if a.fb_password %}
+                        <div style="display: flex; align-items: center; gap: 6px;">
+                            <span id="pwd-{{ a.id }}" style="font-family: monospace; font-size: 13px;">••••••••</span>
+                            <button type="button" 
+                                    onclick="togglePwd({{ a.id }})"
+                                    style="background: none; border: 1px solid #ddd; cursor: pointer; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #1877F2;">
+                                👁️
+                            </button>
+                            <button type="button" 
+                                    onclick="copyPwd({{ a.id }}, this)"
+                                    style="background: none; border: 1px solid #ddd; cursor: pointer; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #42b72a;">
+                                📋
+                            </button>
+                        </div>
+                        {% else %}
+                        <span class="text-muted" style="font-size: 12px;">Not set</span>
+                        {% endif %}
+                    </td>
+                    {% endif %}
+                    
                     <td>{{ a.pages|length }}</td>
                     <td>{{ a.business_managers|length }}</td>
                     <td>{{ a.purchase_date.strftime('%d %b %Y') if a.purchase_date else '-' }}</td>
@@ -43,10 +88,94 @@
                     {% endif %}
                 </tr>
                 {% else %}
-                <tr><td colspan="8" class="text-center text-muted">Koi FB account add nahi kiya</td></tr>
+                <tr><td colspan="9" class="text-center text-muted">Koi FB account add nahi kiya</td></tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
+
+<!-- Import Excel Modal -->
+{% if current_user.is_owner() %}
+<div id="importModal" 
+     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
+            background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
+    <div style="background:white; padding:30px; border-radius:8px; max-width:500px; width:90%;">
+        <h3 style="margin-bottom: 16px;">📥 Import FB Accounts from Excel</h3>
+        
+        <div style="background: #fff3cd; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px;">
+            <strong>⚠️ Hidayat:</strong>
+            <ul style="margin: 8px 0 0 20px; padding: 0;">
+                <li>Pehle <strong>Template Download</strong> karen</li>
+                <li>Apna data fill karen (column order maintain rakhen)</li>
+                <li>Phir yahan upload karen</li>
+                <li>Duplicate account names skip ho jayen ge</li>
+            </ul>
+        </div>
+        
+        <form method="POST" action="{{ url_for('import_fb_accounts') }}" enctype="multipart/form-data">
+            <div class="form-group">
+                <label>Excel File (.xlsx)</label>
+                <input type="file" name="excel_file" accept=".xlsx,.xls" required class="form-control">
+            </div>
+            
+            <div style="display: flex; gap: 10px; margin-top: 16px;">
+                <button type="submit" class="btn btn-primary">📥 Upload & Import</button>
+                <button type="button" onclick="document.getElementById('importModal').style.display='none'" 
+                        class="btn btn-secondary">Cancel</button>
+            </div>
+        </form>
+    </div>
+</div>
+{% endif %}
+
+<script>
+const pwdCache = {};
+
+async function fetchPwd(id) {
+    if (pwdCache[id]) return pwdCache[id];
+    try {
+        const res = await fetch(`/api/fb-account/${id}/password`);
+        const data = await res.json();
+        if (data.success) {
+            pwdCache[id] = data.password;
+            return data.password;
+        }
+    } catch (e) {
+        console.error(e);
+    }
+    return null;
+}
+
+async function togglePwd(id) {
+    const el = document.getElementById('pwd-' + id);
+    if (el.textContent === '••••••••') {
+        const pwd = await fetchPwd(id);
+        if (pwd) {
+            el.textContent = pwd;
+            el.style.color = '#d62976';
+        }
+    } else {
+        el.textContent = '••••••••';
+        el.style.color = '';
+    }
+}
+
+async function copyPwd(id, btn) {
+    const pwd = await fetchPwd(id);
+    if (!pwd) return;
+    navigator.clipboard.writeText(pwd).then(() => {
+        const original = btn.innerHTML;
+        btn.innerHTML = '✓';
+        btn.style.color = '#42b72a';
+        setTimeout(() => {
+            btn.innerHTML = original;
+        }, 1500);
+    });
+}
+
+document.getElementById('importModal')?.addEventListener('click', function(e) {
+    if (e.target === this) this.style.display = 'none';
+});
+</script>
 {% endblock %}

@@ -233,14 +233,19 @@ def add_fb_account():
             account_name=request.form.get('account_name'),
             email=request.form.get('email'),
             phone=request.form.get('phone'),
+            recovery_email=request.form.get('recovery_email'),
             purchase_date=datetime.strptime(purchase_date, '%Y-%m-%d').date() if purchase_date else None,
             purchase_cost=float(request.form.get('purchase_cost') or 0),
             status=request.form.get('status', 'active'),
             notes=request.form.get('notes')
         )
+        # Encrypted fields
+        account.set_fb_password(request.form.get('fb_password'))
+        account.set_two_fa_code(request.form.get('two_fa_code'))
+        
         db.session.add(account)
         db.session.commit()
-        flash('FB Account add ho gaya', 'success')
+        flash('FB Account add ho gaya (password encrypted hai)', 'success')
         return redirect(url_for('fb_accounts'))
     
     return render_template('fb_account_form.html', account=None)
@@ -256,6 +261,17 @@ def edit_fb_account(account_id):
         account.account_name = request.form.get('account_name')
         account.email = request.form.get('email')
         account.phone = request.form.get('phone')
+        
+        # Password sirf tab update karen agar user ne diya hai
+        new_password = request.form.get('fb_password')
+        if new_password:
+            account.set_fb_password(new_password)
+        
+        new_2fa = request.form.get('two_fa_code')
+        if new_2fa:
+            account.set_two_fa_code(new_2fa)
+        
+        account.recovery_email = request.form.get('recovery_email')
         account.purchase_date = datetime.strptime(purchase_date, '%Y-%m-%d').date() if purchase_date else None
         account.purchase_cost = float(request.form.get('purchase_cost') or 0)
         account.status = request.form.get('status', 'active')
@@ -265,6 +281,758 @@ def edit_fb_account(account_id):
         return redirect(url_for('fb_accounts'))
     
     return render_template('fb_account_form.html', account=account)
+
+
+# ==================== FB ACCOUNTS - EXCEL IMPORT/EXPORT ====================
+
+@app.route('/fb-accounts/export')
+@login_required
+@owner_required
+def export_fb_accounts():
+    """Saare FB accounts ko Excel file mein export karen"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+    from flask import send_file
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FB Accounts"
+    
+    # Headers
+    headers = [
+        'Account Name', 'Email', 'Phone', 'FB Password', 
+        'Recovery Email', '2FA Code', 'Purchase Date', 
+        'Purchase Cost (PKR)', 'Status', 'Notes'
+    ]
+    ws.append(headers)
+    
+    # Header styling
+    header_font = Font(bold=True, color='FFFFFF', size=12)
+    header_fill = PatternFill(start_color='1877F2', end_color='1877F2', fill_type='solid')
+    for col_num, _ in enumerate(headers, 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    
+    # Data rows
+    accounts = FBAccount.query.order_by(FBAccount.created_at.desc()).all()
+    for acc in accounts:
+        ws.append([
+            acc.account_name or '',
+            acc.email or '',
+            acc.phone or '',
+            acc.get_fb_password() or '',
+            acc.recovery_email or '',
+            acc.get_two_fa_code() or '',
+            acc.purchase_date.strftime('%Y-%m-%d') if acc.purchase_date else '',
+            acc.purchase_cost or 0,
+            acc.status or 'active',
+            acc.notes or ''
+        ])
+    
+    # Auto-width columns
+    column_widths = [20, 25, 15, 20, 25, 20, 14, 15, 12, 30]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = width
+    
+    # Freeze first row
+    ws.freeze_panes = 'A2'
+    
+    # Save to BytesIO
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    filename = f"fb_accounts_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename
+    )
+
+
+@app.route('/fb-accounts/import', methods=['POST'])
+@login_required
+@owner_required
+def import_fb_accounts():
+    """Excel file se FB accounts ko bulk import karen"""
+    from openpyxl import load_workbook
+    
+    if 'excel_file' not in request.files:
+        flash('Koi file select nahi ki gayi', 'error')
+        return redirect(url_for('fb_accounts'))
+    
+    file = request.files['excel_file']
+    if file.filename == '':
+        flash('Koi file select nahi ki gayi', 'error')
+        return redirect(url_for('fb_accounts'))
+    
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Sirf Excel file (.xlsx ya .xls) upload karen', 'error')
+        return redirect(url_for('fb_accounts'))
+    
+    try:
+        wb = load_workbook(file, data_only=True)
+        ws = wb.active
+        
+        imported_count = 0
+        skipped_count = 0
+        error_rows = []
+        
+        # Pehli row header hai, baqi data
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            # Empty rows skip karen
+            if not row or not any(row):
+                continue
+            
+            try:
+                # Columns: account_name, email, phone, password, recovery_email, 2fa, purchase_date, cost, status, notes
+                account_name = str(row[0]).strip() if row[0] else None
+                
+                if not account_name:
+                    skipped_count += 1
+                    continue
+                
+                # Duplicate check (account_name ke base par)
+                existing = FBAccount.query.filter_by(account_name=account_name).first()
+                if existing:
+                    skipped_count += 1
+                    continue
+                
+                # Purchase date parse
+                purchase_date = None
+                if row[6]:
+                    try:
+                        if isinstance(row[6], datetime):
+                            purchase_date = row[6].date()
+                        elif isinstance(row[6], date):
+                            purchase_date = row[6]
+                        else:
+                            purchase_date = datetime.strptime(str(row[6]).split()[0], '%Y-%m-%d').date()
+                    except:
+                        purchase_date = None
+                
+                # Purchase cost
+                try:
+                    purchase_cost = float(row[7]) if row[7] else 0
+                except:
+                    purchase_cost = 0
+                
+                # Status validate
+                status = str(row[8]).strip().lower() if row[8] else 'active'
+                if status not in ['active', 'restricted', 'banned', 'disabled']:
+                    status = 'active'
+                
+                account = FBAccount(
+                    account_name=account_name,
+                    email=str(row[1]).strip() if row[1] else None,
+                    phone=str(row[2]).strip() if row[2] else None,
+                    recovery_email=str(row[4]).strip() if row[4] else None,
+                    purchase_date=purchase_date,
+                    purchase_cost=purchase_cost,
+                    status=status,
+                    notes=str(row[9]).strip() if row[9] else None
+                )
+                # Encrypt sensitive fields
+                if row[3]:
+                    account.set_fb_password(str(row[3]).strip())
+                if row[5]:
+                    account.set_two_fa_code(str(row[5]).strip())
+                
+                db.session.add(account)
+                imported_count += 1
+                
+            except Exception as e:
+                error_rows.append(f"Row {row_num}: {str(e)}")
+                continue
+        
+        db.session.commit()
+        
+        msg = f'✅ {imported_count} accounts import ho gaye'
+        if skipped_count > 0:
+            msg += f' | ⏭️ {skipped_count} skip kiye gaye (already exist ya empty)'
+        if error_rows:
+            msg += f' | ⚠️ {len(error_rows)} errors'
+        
+        flash(msg, 'success' if imported_count > 0 else 'warning')
+        
+    except Exception as e:
+        flash(f'Import error: {str(e)}', 'error')
+    
+    return redirect(url_for('fb_accounts'))
+
+
+@app.route('/fb-accounts/template')
+@login_required
+@owner_required
+def fb_accounts_template():
+    """Sample Excel template download karen for import"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from io import BytesIO
+    from flask import send_file
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "FB Accounts Template"
+    
+    headers = [
+        'Account Name', 'Email', 'Phone', 'FB Password', 
+        'Recovery Email', '2FA Code', 'Purchase Date', 
+        'Purchase Cost (PKR)', 'Status', 'Notes'
+    ]
+    ws.append(headers)
+    
+    # Header styling
+    header_font = Font(bold=True, color='FFFFFF', size=12)
+    header_fill = PatternFill(start_color='1877F2', end_color='1877F2', fill_type='solid')
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center')
+    
+    # Sample data
+    sample_rows = [
+        ['Mudassar FB 1', 'fb1@gmail.com', '03001234567', 'YourPassword123', 
+         'recovery@gmail.com', '2FA backup code', '2024-01-15', 5000, 'active', 'Main account'],
+        ['Mudassar FB 2', 'fb2@gmail.com', '03007654321', 'AnotherPass456', 
+         '', '', '2024-02-20', 3000, 'active', 'Secondary'],
+    ]
+    for row in sample_rows:
+        ws.append(row)
+    
+    # Status note
+    ws.cell(row=5, column=1, value='Note: Status field accepts: active, restricted, banned, disabled')
+    ws.cell(row=5, column=1).font = Font(italic=True, color='888888')
+    
+    column_widths = [20, 25, 15, 20, 25, 20, 14, 15, 12, 30]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = width
+    
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name='fb_accounts_template.xlsx'
+    )
+
+
+# ==================== API: Get decrypted password (owner only) ====================
+@app.route('/api/fb-account/<int:account_id>/password')
+@login_required
+@owner_required
+def api_get_fb_password(account_id):
+    """AJAX endpoint - returns decrypted password for display"""
+    account = FBAccount.query.get_or_404(account_id)
+    return jsonify({
+        'success': True,
+        'password': account.get_fb_password(),
+        'two_fa': account.get_two_fa_code()
+    })
+
+
+# ==================== EXCEL HELPER ====================
+def _excel_response(wb, filename):
+    """Helper: workbook ko Excel download response banata hai"""
+    from io import BytesIO
+    from flask import send_file
+    output = BytesIO()
+    wb.save(output)
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True,
+        download_name=filename
+    )
+
+
+def _style_header(ws, headers, color='1877F2'):
+    """Helper: header row par styling lagao"""
+    from openpyxl.styles import Font, PatternFill, Alignment
+    ws.append(headers)
+    header_font = Font(bold=True, color='FFFFFF', size=12)
+    header_fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
+    for col_num in range(1, len(headers) + 1):
+        cell = ws.cell(row=1, column=col_num)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal='center', vertical='center')
+    ws.freeze_panes = 'A2'
+
+
+# ==================== PAGES - EXCEL IMPORT/EXPORT ====================
+@app.route('/pages/export')
+@login_required
+@owner_required
+def export_pages():
+    """Saare pages Excel mein export karen"""
+    from openpyxl import Workbook
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pages"
+    
+    headers = [
+        'Page Name', 'Page URL', 'Niche', 'FB Account', 'Business Manager',
+        'Assigned Worker', 'Monetization Status', 'Monetized Date', 
+        'Page Created Date', 'Notes'
+    ]
+    _style_header(ws, headers, '42b72a')
+    
+    pages_list = Page.query.filter_by(is_active=True).all()
+    for p in pages_list:
+        ws.append([
+            p.page_name or '',
+            p.page_url or '',
+            p.niche or '',
+            p.fb_account.account_name if p.fb_account else '',
+            p.business_manager.bm_name if p.business_manager else '',
+            p.assigned_worker.full_name if p.assigned_worker else '',
+            p.monetization_status or 'non_monetized',
+            p.monetized_date.strftime('%Y-%m-%d') if p.monetized_date else '',
+            p.page_created_date.strftime('%Y-%m-%d') if p.page_created_date else '',
+            p.notes or ''
+        ])
+    
+    column_widths = [25, 35, 15, 20, 20, 20, 18, 14, 14, 30]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = width
+    
+    filename = f"pages_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    return _excel_response(wb, filename)
+
+
+@app.route('/pages/template')
+@login_required
+@owner_required
+def pages_template():
+    """Pages import ke liye sample Excel template"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Pages Template"
+    
+    headers = [
+        'Page Name', 'Page URL', 'Niche', 'FB Account', 'Business Manager',
+        'Assigned Worker', 'Monetization Status', 'Monetized Date', 
+        'Page Created Date', 'Notes'
+    ]
+    _style_header(ws, headers, '42b72a')
+    
+    # Sample data
+    samples = [
+        ['Comedy Hub', 'https://fb.com/comedyhub', 'Comedy', 'Mudassar FB 1', '', 
+         '', 'monetized', '2024-03-15', '2023-12-01', 'Top performer'],
+        ['News Pakistan', 'https://fb.com/newspk', 'News', 'Mudassar FB 1', 'Main BM', 
+         'Ali Worker', 'non_monetized', '', '2024-01-10', ''],
+    ]
+    for row in samples:
+        ws.append(row)
+    
+    notes = [
+        '',
+        'Notes:',
+        '1. FB Account: existing account_name use karen (exact match)',
+        '2. Business Manager: optional, agar BM mein hai',
+        '3. Assigned Worker: worker ka full_name (exact match)',
+        '4. Monetization Status: monetized, non_monetized, in_review, suspended',
+        '5. Dates: YYYY-MM-DD format mein (e.g. 2024-03-15)'
+    ]
+    for i, note in enumerate(notes, start=5):
+        cell = ws.cell(row=i, column=1, value=note)
+        if i > 5:
+            cell.font = Font(italic=True, color='888888', size=11)
+    
+    column_widths = [25, 35, 15, 20, 20, 20, 18, 14, 14, 30]
+    for i, width in enumerate(column_widths, 1):
+        ws.column_dimensions[chr(64 + i)].width = width
+    
+    return _excel_response(wb, 'pages_template.xlsx')
+
+
+@app.route('/pages/import', methods=['POST'])
+@login_required
+@owner_required
+def import_pages():
+    """Excel se pages bulk import karen"""
+    from openpyxl import load_workbook
+    
+    if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
+        flash('Koi file select nahi ki gayi', 'error')
+        return redirect(url_for('pages'))
+    
+    file = request.files['excel_file']
+    if not file.filename.endswith(('.xlsx', '.xls')):
+        flash('Sirf Excel file upload karen', 'error')
+        return redirect(url_for('pages'))
+    
+    try:
+        wb = load_workbook(file, data_only=True)
+        ws = wb.active
+        
+        imported = 0
+        skipped = 0
+        errors = []
+        
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row or not any(row):
+                continue
+            
+            try:
+                page_name = str(row[0]).strip() if row[0] else None
+                if not page_name:
+                    skipped += 1
+                    continue
+                
+                # Duplicate check
+                if Page.query.filter_by(page_name=page_name).first():
+                    skipped += 1
+                    continue
+                
+                # FB Account lookup by name
+                fb_account_name = str(row[3]).strip() if row[3] else None
+                fb_account = FBAccount.query.filter_by(account_name=fb_account_name).first() if fb_account_name else None
+                if not fb_account:
+                    errors.append(f"Row {row_num}: FB Account '{fb_account_name}' nahi mila")
+                    continue
+                
+                # BM lookup by name
+                bm = None
+                if row[4]:
+                    bm_name = str(row[4]).strip()
+                    bm = BusinessManager.query.filter_by(bm_name=bm_name).first()
+                
+                # Worker lookup
+                worker = None
+                if row[5]:
+                    worker_name = str(row[5]).strip()
+                    worker = User.query.filter_by(full_name=worker_name, role='worker').first()
+                
+                # Dates parse
+                def parse_date(val):
+                    if not val: return None
+                    if isinstance(val, datetime): return val.date()
+                    if isinstance(val, date): return val
+                    try: return datetime.strptime(str(val).split()[0], '%Y-%m-%d').date()
+                    except: return None
+                
+                monetization = str(row[6]).strip().lower() if row[6] else 'non_monetized'
+                if monetization not in ['monetized', 'non_monetized', 'in_review', 'suspended']:
+                    monetization = 'non_monetized'
+                
+                page = Page(
+                    page_name=page_name,
+                    page_url=str(row[1]).strip() if row[1] else None,
+                    niche=str(row[2]).strip() if row[2] else None,
+                    fb_account_id=fb_account.id,
+                    bm_id=bm.id if bm else None,
+                    assigned_worker_id=worker.id if worker else None,
+                    monetization_status=monetization,
+                    monetized_date=parse_date(row[7]),
+                    page_created_date=parse_date(row[8]),
+                    notes=str(row[9]).strip() if row[9] else None
+                )
+                db.session.add(page)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        db.session.commit()
+        
+        msg = f'✅ {imported} pages import ho gaye'
+        if skipped > 0: msg += f' | ⏭️ {skipped} skip kiye'
+        if errors: msg += f' | ⚠️ {len(errors)} errors: ' + '; '.join(errors[:3])
+        flash(msg, 'success' if imported > 0 else 'warning')
+    except Exception as e:
+        flash(f'Import error: {str(e)}', 'error')
+    
+    return redirect(url_for('pages'))
+
+
+# ==================== BUSINESS MANAGERS - EXCEL ====================
+@app.route('/business-managers')
+@login_required
+@owner_required
+def business_managers():
+    """BM list page"""
+    bms = BusinessManager.query.order_by(BusinessManager.created_at.desc()).all()
+    return render_template('business_managers.html', bms=bms)
+
+
+@app.route('/business-managers/add', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def add_business_manager():
+    if request.method == 'POST':
+        bm = BusinessManager(
+            bm_name=request.form.get('bm_name'),
+            bm_id=request.form.get('bm_id'),
+            fb_account_id=int(request.form.get('fb_account_id')),
+            status=request.form.get('status', 'active')
+        )
+        db.session.add(bm)
+        db.session.commit()
+        flash('Business Manager add ho gaya', 'success')
+        return redirect(url_for('business_managers'))
+    
+    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    return render_template('bm_form.html', bm=None, fb_accounts=fb_accounts_list)
+
+
+@app.route('/business-managers/<int:bm_id>/edit', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def edit_business_manager(bm_id):
+    bm = BusinessManager.query.get_or_404(bm_id)
+    if request.method == 'POST':
+        bm.bm_name = request.form.get('bm_name')
+        bm.bm_id = request.form.get('bm_id')
+        bm.fb_account_id = int(request.form.get('fb_account_id'))
+        bm.status = request.form.get('status', 'active')
+        db.session.commit()
+        flash('Business Manager update ho gaya', 'success')
+        return redirect(url_for('business_managers'))
+    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    return render_template('bm_form.html', bm=bm, fb_accounts=fb_accounts_list)
+
+
+@app.route('/business-managers/export')
+@login_required
+@owner_required
+def export_business_managers():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Business Managers"
+    
+    headers = ['BM Name', 'BM ID Number', 'Linked FB Account', 'Status', 'Pages Count']
+    _style_header(ws, headers, '7F77DD')
+    
+    bms = BusinessManager.query.all()
+    for bm in bms:
+        pages_count = Page.query.filter_by(bm_id=bm.id, is_active=True).count()
+        ws.append([
+            bm.bm_name,
+            bm.bm_id or '',
+            bm.fb_account.account_name if bm.fb_account else '',
+            bm.status,
+            pages_count
+        ])
+    
+    for i, w in enumerate([25, 25, 25, 15, 15], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+    
+    return _excel_response(wb, f"business_managers_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+
+
+@app.route('/business-managers/template')
+@login_required
+@owner_required
+def bm_template():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    headers = ['BM Name', 'BM ID Number', 'Linked FB Account', 'Status']
+    _style_header(ws, headers, '7F77DD')
+    ws.append(['Main BM', '123456789012345', 'Mudassar FB 1', 'active'])
+    ws.append(['Backup BM', '987654321098765', 'Mudassar FB 2', 'active'])
+    ws.cell(row=5, column=1, value='Note: FB Account exact match honi chahiye (account_name)').font = Font(italic=True, color='888888')
+    for i, w in enumerate([25, 25, 25, 15], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+    return _excel_response(wb, 'business_managers_template.xlsx')
+
+
+@app.route('/business-managers/import', methods=['POST'])
+@login_required
+@owner_required
+def import_business_managers():
+    from openpyxl import load_workbook
+    if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
+        flash('Koi file select nahi ki gayi', 'error')
+        return redirect(url_for('business_managers'))
+    
+    try:
+        wb = load_workbook(request.files['excel_file'], data_only=True)
+        ws = wb.active
+        imported, skipped, errors = 0, 0, []
+        
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row or not any(row):
+                continue
+            try:
+                bm_name = str(row[0]).strip() if row[0] else None
+                if not bm_name:
+                    skipped += 1
+                    continue
+                if BusinessManager.query.filter_by(bm_name=bm_name).first():
+                    skipped += 1
+                    continue
+                
+                fb_acc_name = str(row[2]).strip() if row[2] else None
+                fb_acc = FBAccount.query.filter_by(account_name=fb_acc_name).first() if fb_acc_name else None
+                if not fb_acc:
+                    errors.append(f"Row {row_num}: FB Account nahi mila")
+                    continue
+                
+                bm = BusinessManager(
+                    bm_name=bm_name,
+                    bm_id=str(row[1]).strip() if row[1] else None,
+                    fb_account_id=fb_acc.id,
+                    status=str(row[3]).strip().lower() if row[3] else 'active'
+                )
+                db.session.add(bm)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        db.session.commit()
+        msg = f'✅ {imported} BMs import | ⏭️ {skipped} skip'
+        if errors: msg += f' | ⚠️ {len(errors)} errors'
+        flash(msg, 'success' if imported > 0 else 'warning')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('business_managers'))
+
+
+# ==================== TEAM - EXCEL ====================
+@app.route('/team/export')
+@login_required
+@owner_required
+def export_team():
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Team Members"
+    
+    headers = ['Full Name', 'Username', 'Role', 'Phone', 'Supervisor', 'Active', 'Joined']
+    _style_header(ws, headers, 'd62976')
+    
+    members = User.query.filter(User.role != 'owner').all()
+    for m in members:
+        ws.append([
+            m.full_name,
+            m.username,
+            m.role,
+            m.phone or '',
+            m.supervisor.full_name if m.supervisor else '',
+            'Yes' if m.is_active else 'No',
+            m.created_at.strftime('%Y-%m-%d') if m.created_at else ''
+        ])
+    
+    for i, w in enumerate([25, 18, 15, 15, 25, 10, 14], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+    
+    return _excel_response(wb, f"team_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+
+
+@app.route('/team/template')
+@login_required
+@owner_required
+def team_template():
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    headers = ['Full Name', 'Username', 'Password', 'Role', 'Phone', 'Supervisor Name']
+    _style_header(ws, headers, 'd62976')
+    ws.append(['Ali Khan', 'ali_khan', 'password123', 'worker', '03001234567', 'Ahmad Supervisor'])
+    ws.append(['Ahmad Hussain', 'ahmad_h', 'mypass456', 'supervisor', '03007654321', ''])
+    
+    notes = [
+        '',
+        'Notes:',
+        '1. Role: worker, supervisor (owner allowed nahi)',
+        '2. Supervisor Name: workers ke liye apne supervisor ka full_name',
+        '3. Username unique hona chahiye',
+        '4. Password kam az kam 6 characters'
+    ]
+    for i, note in enumerate(notes, start=5):
+        cell = ws.cell(row=i, column=1, value=note)
+        if i > 5:
+            cell.font = Font(italic=True, color='888888', size=11)
+    
+    for i, w in enumerate([25, 18, 18, 15, 15, 25], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+    
+    return _excel_response(wb, 'team_template.xlsx')
+
+
+@app.route('/team/import', methods=['POST'])
+@login_required
+@owner_required
+def import_team():
+    from openpyxl import load_workbook
+    if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
+        flash('Koi file select nahi ki gayi', 'error')
+        return redirect(url_for('team'))
+    
+    try:
+        wb = load_workbook(request.files['excel_file'], data_only=True)
+        ws = wb.active
+        imported, skipped, errors = 0, 0, []
+        
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row or not any(row):
+                continue
+            try:
+                full_name = str(row[0]).strip() if row[0] else None
+                username = str(row[1]).strip() if row[1] else None
+                password = str(row[2]).strip() if row[2] else None
+                role = str(row[3]).strip().lower() if row[3] else None
+                
+                if not (full_name and username and password and role):
+                    skipped += 1
+                    continue
+                
+                if role not in ['worker', 'supervisor']:
+                    errors.append(f"Row {row_num}: Invalid role '{role}'")
+                    continue
+                
+                if User.query.filter_by(username=username).first():
+                    skipped += 1
+                    continue
+                
+                supervisor = None
+                if role == 'worker' and row[5]:
+                    supervisor = User.query.filter_by(
+                        full_name=str(row[5]).strip(), role='supervisor'
+                    ).first()
+                
+                user = User(
+                    full_name=full_name,
+                    username=username,
+                    role=role,
+                    phone=str(row[4]).strip() if row[4] else None,
+                    supervisor_id=supervisor.id if supervisor else None,
+                    is_active=True
+                )
+                user.set_password(password)
+                db.session.add(user)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+        
+        db.session.commit()
+        msg = f'✅ {imported} members import | ⏭️ {skipped} skip'
+        if errors: msg += f' | ⚠️ {len(errors)} errors: ' + '; '.join(errors[:3])
+        flash(msg, 'success' if imported > 0 else 'warning')
+    except Exception as e:
+        flash(f'Error: {str(e)}', 'error')
+    
+    return redirect(url_for('team'))
 
 
 # ==================== PAGES ====================

@@ -52,6 +52,9 @@ class FBAccount(db.Model):
     account_name = db.Column(db.String(120), nullable=False)  # e.g. "Mudassar FB 1"
     email = db.Column(db.String(120))
     phone = db.Column(db.String(20))
+    fb_password = db.Column(db.Text)  # encrypted - owner only visible
+    recovery_email = db.Column(db.String(120))  # backup email
+    two_fa_code = db.Column(db.Text)  # encrypted - 2FA backup codes
     purchase_date = db.Column(db.Date)
     purchase_cost = db.Column(db.Float, default=0)  # PKR
     status = db.Column(db.String(20), default='active')  # active, restricted, banned, disabled
@@ -61,6 +64,37 @@ class FBAccount(db.Model):
     # Relationships
     pages = db.relationship('Page', backref='fb_account', lazy=True)
     business_managers = db.relationship('BusinessManager', backref='fb_account', lazy=True)
+    
+    # ============ ENCRYPTION HELPERS ============
+    def set_fb_password(self, plain_password):
+        """Password encrypt karke save karen"""
+        if plain_password:
+            from crypto_utils import encrypt_text
+            self.fb_password = encrypt_text(plain_password)
+        else:
+            self.fb_password = None
+    
+    def get_fb_password(self):
+        """Decrypted password return karen"""
+        if not self.fb_password:
+            return ''
+        from crypto_utils import decrypt_text
+        return decrypt_text(self.fb_password)
+    
+    def set_two_fa_code(self, plain_code):
+        """2FA code encrypt karke save karen"""
+        if plain_code:
+            from crypto_utils import encrypt_text
+            self.two_fa_code = encrypt_text(plain_code)
+        else:
+            self.two_fa_code = None
+    
+    def get_two_fa_code(self):
+        """Decrypted 2FA code return karen"""
+        if not self.two_fa_code:
+            return ''
+        from crypto_utils import decrypt_text
+        return decrypt_text(self.two_fa_code)
 
 
 class BusinessManager(db.Model):
@@ -170,6 +204,33 @@ def init_db(app):
     """Database initialize karna aur default owner user banana"""
     with app.app_context():
         db.create_all()
+        
+        # ==================== AUTO-MIGRATION ====================
+        # Naye columns add karen agar existing table mein nahi hain
+        from sqlalchemy import inspect, text
+        inspector = inspect(db.engine)
+        
+        if 'fb_accounts' in inspector.get_table_names():
+            existing_cols = [col['name'] for col in inspector.get_columns('fb_accounts')]
+            
+            # SQLite aur PostgreSQL dono ke liye work karta hai
+            migrations = []
+            if 'fb_password' not in existing_cols:
+                migrations.append(('fb_password', 'TEXT'))
+            if 'recovery_email' not in existing_cols:
+                migrations.append(('recovery_email', 'VARCHAR(120)'))
+            if 'two_fa_code' not in existing_cols:
+                migrations.append(('two_fa_code', 'TEXT'))
+            
+            if migrations:
+                with db.engine.connect() as conn:
+                    for col_name, col_type in migrations:
+                        try:
+                            conn.execute(text(f'ALTER TABLE fb_accounts ADD COLUMN {col_name} {col_type}'))
+                            conn.commit()
+                            print(f"✅ Migration: Added column 'fb_accounts.{col_name}'")
+                        except Exception as e:
+                            print(f"⚠️ Migration warning for {col_name}: {e}")
         
         # Default owner user banao agar nahi hai
         if not User.query.filter_by(role='owner').first():

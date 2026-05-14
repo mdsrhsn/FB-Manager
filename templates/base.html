@@ -28,6 +28,12 @@
             </a></li>
             {% endif %}
             
+            {% if current_user.is_owner() %}
+            <li><a href="{{ url_for('business_managers') }}" class="{% if 'business_manager' in request.endpoint or request.endpoint == 'add_business_manager' or request.endpoint == 'edit_business_manager' %}active{% endif %}">
+                <span class="icon">🏢</span> Business Managers
+            </a></li>
+            {% endif %}
+            
             <li><a href="{{ url_for('pages') }}" class="{% if 'page' in request.endpoint %}active{% endif %}">
                 <span class="icon">📄</span> Pages
             </a></li>
