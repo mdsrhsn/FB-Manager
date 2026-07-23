@@ -1,0 +1,98 @@
+{% extends 'base.html' %}
+{% block page_title %}{% if group %}Edit{% else %}Add{% endif %} Group{% endblock %}
+
+{% block content %}
+<div class="card" style="max-width: 800px;">
+    <form method="POST">
+        <h3 style="margin-bottom: 16px; color: #1877F2;">👥 Group Info</h3>
+
+        <div class="form-group">
+            <label>Group Name *</label>
+            <input type="text" name="group_name" class="form-control" required
+                   value="{{ group.group_name if group else '' }}"
+                   placeholder="e.g. Comedy Lovers Pakistan">
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Group URL</label>
+                <input type="url" name="group_url" class="form-control"
+                       value="{{ group.group_url if group else '' }}"
+                       placeholder="https://facebook.com/groups/...">
+            </div>
+            <div class="form-group">
+                <label>Group FB ID</label>
+                <input type="text" name="group_fb_id" class="form-control"
+                       value="{{ group.group_fb_id if group else '' }}"
+                       placeholder="e.g. 123456789012345">
+            </div>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
+        <h3 style="margin-bottom: 16px; color: #42b72a;">🔗 Group Kis Se Linked Hai</h3>
+        <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+            Group ya to kisi Page se linked hota hai, ya seedha kisi FB ID se. Dono khali bhi chhod sakte hain.
+        </p>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>📄 Linked Page</label>
+                <select name="page_id" class="form-control">
+                    <option value="">-- Koi page nahi --</option>
+                    {% for p in pages %}
+                    <option value="{{ p.id }}" {% if group and group.page_id == p.id %}selected{% endif %}>
+                        {{ p.page_name }}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div class="form-group">
+                <label>🔑 Linked FB Account</label>
+                <select name="fb_account_id" class="form-control">
+                    <option value="">-- Koi FB ID nahi --</option>
+                    {% for a in fb_accounts %}
+                    <option value="{{ a.id }}" {% if group and group.fb_account_id == a.id %}selected{% endif %}>
+                        {{ a.account_name }}{% if a.location %} — {{ a.location }}{% endif %}
+                    </option>
+                    {% endfor %}
+                </select>
+            </div>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
+        <h3 style="margin-bottom: 16px; color: #f59e0b;">📊 Members &amp; Status</h3>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>👥 Members / Followers</label>
+                <input type="number" name="members_count" class="form-control" min="0"
+                       value="{{ group.members_count if group and group.members_count else 0 }}"
+                       placeholder="e.g. 45000">
+                <small style="color: #65676b; font-size: 12px;">Group mein kitne members hain</small>
+            </div>
+            <div class="form-group">
+                <label>Status</label>
+                <select name="status" class="form-control">
+                    <option value="active" {% if not group or group.status == 'active' %}selected{% endif %}>✅ Active</option>
+                    <option value="restricted" {% if group and group.status == 'restricted' %}selected{% endif %}>⚠️ Restricted</option>
+                    <option value="suspended" {% if group and group.status == 'suspended' %}selected{% endif %}>🚫 Suspended</option>
+                    <option value="deleted" {% if group and group.status == 'deleted' %}selected{% endif %}>⛔ Deleted</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="form-group">
+            <label>Notes</label>
+            <textarea name="notes" class="form-control" rows="3"
+                      placeholder="Koi extra tafseel...">{{ group.notes if group and group.notes else '' }}</textarea>
+        </div>
+
+        <div class="flex">
+            <button type="submit" class="btn btn-primary">{% if group %}Update{% else %}Save{% endif %} Group</button>
+            <a href="{{ url_for('groups') }}" class="btn btn-secondary">Cancel</a>
+        </div>
+    </form>
+</div>
+{% endblock %}

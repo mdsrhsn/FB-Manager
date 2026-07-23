@@ -184,6 +184,9 @@ class Page(db.Model):
     is_fresh_start = db.Column(db.Boolean, default=True)  # Feature 6
     followers_at_start = db.Column(db.Integer, default=0)
     current_followers = db.Column(db.Integer, default=0)
+    # Page health status — monetization se alag (suspend/flag/restrict tracking)
+    page_status = db.Column(db.String(20), default='active')
+    page_status_notes = db.Column(db.Text)
 
     # Relationships
     assigned_worker = db.relationship('User', foreign_keys=[assigned_worker_id])
@@ -413,6 +416,10 @@ def init_db(app):
                 migrations.append(('followers_at_start', 'INTEGER DEFAULT 0'))
             if 'current_followers' not in existing_cols:
                 migrations.append(('current_followers', 'INTEGER DEFAULT 0'))
+            if 'page_status' not in existing_cols:
+                migrations.append(('page_status', "VARCHAR(20) DEFAULT 'active'"))
+            if 'page_status_notes' not in existing_cols:
+                migrations.append(('page_status_notes', 'TEXT'))
 
             for col_name, col_type in migrations:
                 all_migrations.append(('pages', col_name, col_type))

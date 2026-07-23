@@ -14,56 +14,62 @@
     <aside class="sidebar">
         <div class="sidebar-brand">
             <h2>📊 FB Manager</h2>
-            <small>Pages & Earnings Tracker</small>
+            <small>Pages &amp; Earnings Tracker</small>
         </div>
-        
+
         <ul class="sidebar-menu">
             <li><a href="{{ url_for('dashboard') }}" class="{% if request.endpoint == 'dashboard' %}active{% endif %}">
                 <span class="icon">🏠</span> Dashboard
             </a></li>
-            
+
             {% if current_user.is_owner() or current_user.is_supervisor() %}
             <li><a href="{{ url_for('fb_accounts') }}" class="{% if request.endpoint == 'fb_accounts' %}active{% endif %}">
                 <span class="icon">🔑</span> FB Accounts
             </a></li>
             {% endif %}
-            
+
             {% if current_user.is_owner() %}
-            <li><a href="{{ url_for('business_managers') }}" class="{% if 'business_manager' in request.endpoint or request.endpoint == 'add_business_manager' or request.endpoint == 'edit_business_manager' %}active{% endif %}">
+            <li><a href="{{ url_for('business_managers') }}" class="{% if 'business_manager' in request.endpoint %}active{% endif %}">
                 <span class="icon">🏢</span> Business Managers
             </a></li>
             {% endif %}
-            
+
             <li><a href="{{ url_for('pages') }}" class="{% if 'page' in request.endpoint %}active{% endif %}">
                 <span class="icon">📄</span> Pages
             </a></li>
-            
+
+            {% if current_user.is_owner() or current_user.is_supervisor() %}
+            <li><a href="{{ url_for('groups') }}" class="{% if 'group' in request.endpoint %}active{% endif %}">
+                <span class="icon">👥</span> Groups
+            </a></li>
+            {% endif %}
+
             <li><a href="{{ url_for('submit_report') }}" class="{% if request.endpoint == 'submit_report' %}active{% endif %}">
                 <span class="icon">📝</span> Submit Report
             </a></li>
-            
+
             <li><a href="{{ url_for('reports_list') }}" class="{% if request.endpoint == 'reports_list' %}active{% endif %}">
                 <span class="icon">📈</span> Reports
             </a></li>
-            
+
             {% if current_user.is_owner() or current_user.is_supervisor() %}
             <li><a href="{{ url_for('team') }}" class="{% if 'team' in request.endpoint %}active{% endif %}">
-                <span class="icon">👥</span> Team
+                <span class="icon">🧑‍💼</span> Team
             </a></li>
             {% endif %}
-            
+
             {% if current_user.is_owner() %}
             <li><a href="{{ url_for('payments') }}" class="{% if 'payment' in request.endpoint %}active{% endif %}">
                 <span class="icon">💰</span> Payments
             </a></li>
             {% endif %}
-            
+
             <li style="margin-top: 2rem;"><a href="{{ url_for('logout') }}">
                 <span class="icon">🚪</span> Logout
             </a></li>
         </ul>
     </aside>
-    
+
     <!-- MAIN CONTENT -->
     <main class="main-content">
         <div class="top-bar">
@@ -73,7 +79,7 @@
                 <span class="user-badge badge-{{ current_user.role }}">{{ current_user.role }}</span>
             </div>
         </div>
-        
+
         {% with messages = get_flashed_messages(with_categories=true) %}
             {% if messages %}
                 {% for category, message in messages %}
@@ -81,7 +87,7 @@
                 {% endfor %}
             {% endif %}
         {% endwith %}
-        
+
         {% block content %}{% endblock %}
     </main>
 </div>
@@ -90,5 +96,159 @@
 {% endif %}
 
 {% block extra_js %}{% endblock %}
+
+<!-- ============================================================
+     SEARCHABLE DROPDOWNS (V2 NEW)
+     Har bare dropdown (6+ options) ke upar search box aa jata hai.
+     Type karte hi options filter hote hain — jab 1 hi bache to khud
+     select ho jata hai. Native <select> waisa hi rehta hai, isliye
+     form submit aur required validation par koi asar nahi.
+     ============================================================ -->
+<script>
+(function () {
+    var MIN_OPTIONS = 6;   // itne options ke baad search box dikhega
+
+    var css = document.createElement('style');
+    css.textContent =
+        '.ss-box{position:relative;margin-bottom:6px;}' +
+        '.ss-input{width:100%;padding:7px 30px 7px 30px;border:1px solid #d0d3d8;' +
+        'border-radius:6px;font-size:13px;box-sizing:border-box;background:#fff;}' +
+        '.ss-input:focus{outline:none;border-color:#1877F2;box-shadow:0 0 0 2px rgba(24,119,242,.15);}' +
+        '.ss-icon{position:absolute;left:9px;top:16px;transform:translateY(-50%);' +
+        'font-size:13px;opacity:.55;pointer-events:none;}' +
+        '.ss-clear{position:absolute;right:7px;top:16px;transform:translateY(-50%);' +
+        'border:none;background:none;cursor:pointer;font-size:14px;color:#8a8d91;' +
+        'padding:2px 4px;line-height:1;display:none;}' +
+        '.ss-clear:hover{color:#dc2626;}' +
+        '.ss-count{font-size:11px;color:#65676b;margin:3px 0 0 2px;min-height:14px;}' +
+        '.ss-count.ss-none{color:#dc2626;}' +
+        '.ss-count.ss-hit{color:#047857;font-weight:600;}';
+    document.head.appendChild(css);
+
+    function enhance(select) {
+        if (select.dataset.ssDone === '1') return;
+
+        var options = Array.prototype.map.call(select.options, function (o) {
+            return { value: o.value, text: o.text };
+        });
+
+        var hasPlaceholder = options.length > 0 && options[0].value === '';
+        var realCount = hasPlaceholder ? options.length - 1 : options.length;
+        if (realCount < MIN_OPTIONS) return;
+
+        select.dataset.ssDone = '1';
+
+        var box = document.createElement('div');
+        box.className = 'ss-box';
+
+        var icon = document.createElement('span');
+        icon.className = 'ss-icon';
+        icon.textContent = '🔍';
+
+        var input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'ss-input';
+        input.autocomplete = 'off';
+        input.placeholder = 'Naam likh kar search karen... (' + realCount + ' options)';
+
+        var clearBtn = document.createElement('button');
+        clearBtn.type = 'button';
+        clearBtn.className = 'ss-clear';
+        clearBtn.textContent = '✖';
+        clearBtn.title = 'Search clear karen';
+
+        var count = document.createElement('div');
+        count.className = 'ss-count';
+
+        box.appendChild(icon);
+        box.appendChild(input);
+        box.appendChild(clearBtn);
+        select.parentNode.insertBefore(box, select);
+        select.parentNode.insertBefore(count, select.nextSibling);
+
+        function render() {
+            var q = input.value.toLowerCase().trim();
+            var current = select.value;
+
+            var matches = options.filter(function (o) {
+                if (o.value === '') return true;
+                if (!q) return true;
+                return o.text.toLowerCase().indexOf(q) !== -1;
+            });
+
+            var hasCurrent = matches.some(function (o) { return o.value === current; });
+            if (current && !hasCurrent) {
+                var cur = options.filter(function (o) { return o.value === current; })[0];
+                if (cur) matches.splice(hasPlaceholder ? 1 : 0, 0, cur);
+            }
+
+            select.innerHTML = '';
+            matches.forEach(function (o) {
+                var opt = document.createElement('option');
+                opt.value = o.value;
+                opt.textContent = o.text;
+                select.appendChild(opt);
+            });
+            select.value = current;
+
+            var real = matches.filter(function (o) { return o.value !== ''; });
+            clearBtn.style.display = q ? 'block' : 'none';
+
+            if (!q) {
+                count.textContent = '';
+                count.className = 'ss-count';
+                return;
+            }
+
+            if (real.length === 0) {
+                count.textContent = '❌ Koi match nahi mila';
+                count.className = 'ss-count ss-none';
+            } else if (real.length === 1) {
+                select.value = real[0].value;
+                count.textContent = '✅ Select ho gaya: ' + real[0].text;
+                count.className = 'ss-count ss-hit';
+            } else {
+                count.textContent = real.length + ' options mile — dropdown se select karen';
+                count.className = 'ss-count';
+            }
+        }
+
+        input.addEventListener('input', render);
+
+        input.addEventListener('keydown', function (e) {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                var real = Array.prototype.filter.call(select.options, function (o) {
+                    return o.value !== '';
+                });
+                if (real.length > 0) {
+                    select.value = real[0].value;
+                    count.textContent = '✅ Select ho gaya: ' + real[0].text;
+                    count.className = 'ss-count ss-hit';
+                }
+            } else if (e.key === 'Escape') {
+                input.value = '';
+                render();
+            }
+        });
+
+        clearBtn.addEventListener('click', function () {
+            input.value = '';
+            render();
+            input.focus();
+        });
+    }
+
+    function initAll() {
+        Array.prototype.forEach.call(document.querySelectorAll('form select'), enhance);
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', initAll);
+    } else {
+        initAll();
+    }
+})();
+</script>
 </body>
 </html>

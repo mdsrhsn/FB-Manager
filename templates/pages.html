@@ -33,6 +33,18 @@
                 <option value="okay">👍 Okay</option>
                 <option value="not_okay">👎 Not Okay</option>
             </select>
+            <select id="pstatus-filter" 
+                    style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
+                    onchange="filterPages()">
+                <option value="">All Page Status</option>
+                <option value="active">✅ Active</option>
+                <option value="suspended">🚫 Suspended</option>
+                <option value="flagged">🚩 Flagged</option>
+                <option value="restricted">⚠️ Restricted</option>
+                <option value="unpublished">👁️ Unpublished</option>
+                <option value="under_review">🔍 Under Review</option>
+                <option value="deleted">⛔ Deleted</option>
+            </select>
             <select id="fresh-filter" 
                     style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
                     onchange="filterPages()">
@@ -53,6 +65,7 @@
                     <th>FB Account</th>
                     <th>BM</th>
                     <th>Niche</th>
+                    <th>🚦 Page Status</th>
                     <th>👍 Recommendation</th>
                     <th>🆕 Fresh Start</th>
                     <th>👥 Followers</th>
@@ -70,7 +83,8 @@
                     data-niche="{{ (p.niche or '')|lower }}"
                     data-worker="{{ (p.assigned_worker.full_name if p.assigned_worker else '')|lower }}"
                     data-reco="{{ p.recommendation or 'okay' }}"
-                    data-fresh="{{ 'yes' if p.is_fresh_start else 'no' }}">
+                    data-fresh="{{ 'yes' if p.is_fresh_start else 'no' }}"
+                    data-pstatus="{{ p.page_status or 'active' }}">
                     <td>
                         <div class="text-bold">{{ p.page_name }}</div>
                         {% if p.page_url %}<a href="{{ p.page_url }}" target="_blank" style="font-size:0.8rem">{{ p.page_url[:40] }}...</a>{% endif %}
@@ -78,6 +92,25 @@
                     <td>{{ p.fb_account.account_name if p.fb_account else '-' }}</td>
                     <td>{{ p.business_manager.bm_name if p.business_manager else '-' }}</td>
                     <td>{{ p.niche or '-' }}</td>
+
+                    {# ============ PAGE STATUS BADGE ============ #}
+                    <td>
+                        {% set pstatus = p.page_status or 'active' %}
+                        {% set pstyles = {
+                            'active':      ('✅', 'Active',       '#d1fae5', '#047857'),
+                            'suspended':   ('🚫', 'Suspended',    '#fecaca', '#7f1d1d'),
+                            'flagged':     ('🚩', 'Flagged',      '#fee2e2', '#991b1b'),
+                            'restricted':  ('⚠️', 'Restricted',   '#fed7aa', '#9a3412'),
+                            'unpublished': ('👁️', 'Unpublished',  '#e5e7eb', '#374151'),
+                            'under_review':('🔍', 'Under Review', '#fef3c7', '#92400e'),
+                            'deleted':     ('⛔', 'Deleted',      '#f3f4f6', '#6b7280')
+                        } %}
+                        {% set st = pstyles.get(pstatus, ('❔', pstatus, '#f3f4f6', '#374151')) %}
+                        <span style="background: {{ st[2] }}; color: {{ st[3] }}; padding: 3px 10px; border-radius: 12px; font-size: 12px; font-weight: 600;"
+                              title="{{ p.page_status_notes or 'No notes' }}">
+                            {{ st[0] }} {{ st[1] }}
+                        </span>
+                    </td>
 
                     {# ============ RECOMMENDATION BADGE ============ #}
                     <td>
@@ -140,7 +173,7 @@
                     {% endif %}
                 </tr>
                 {% else %}
-                <tr><td colspan="10" class="text-center text-muted">Koi page nahi mila</td></tr>
+                <tr><td colspan="11" class="text-center text-muted">Koi page nahi mila</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -182,6 +215,7 @@ function filterPages() {
     const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
     const recoFilter = document.getElementById('reco-filter').value;
     const freshFilter = document.getElementById('fresh-filter').value;
+    const pstatusFilter = document.getElementById('pstatus-filter').value;
     const rows = document.querySelectorAll('.page-row');
     let visibleCount = 0;
 
@@ -201,10 +235,12 @@ function filterPages() {
             niche.includes(searchTerm) ||
             worker.includes(searchTerm);
 
+        const pstatus = row.dataset.pstatus || 'active';
         const recoMatch = !recoFilter || reco === recoFilter;
         const freshMatch = !freshFilter || fresh === freshFilter;
+        const pstatusMatch = !pstatusFilter || pstatus === pstatusFilter;
 
-        if (searchMatch && recoMatch && freshMatch) {
+        if (searchMatch && recoMatch && freshMatch && pstatusMatch) {
             row.style.display = '';
             visibleCount++;
         } else {
@@ -214,7 +250,7 @@ function filterPages() {
 
     const resultEl = document.getElementById('filter-result');
     const totalRows = rows.length;
-    if (searchTerm || recoFilter || freshFilter) {
+    if (searchTerm || recoFilter || freshFilter || pstatusFilter) {
         resultEl.textContent = `${visibleCount} / ${totalRows} pages`;
         resultEl.style.color = visibleCount === 0 ? '#dc2626' : '#65676b';
     } else {
@@ -226,6 +262,7 @@ function clearSearch() {
     document.getElementById('search-input').value = '';
     document.getElementById('reco-filter').value = '';
     document.getElementById('fresh-filter').value = '';
+    document.getElementById('pstatus-filter').value = '';
     filterPages();
     document.getElementById('search-input').focus();
 }

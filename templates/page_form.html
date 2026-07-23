@@ -107,6 +107,32 @@
 
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
 
+        <h3 style="margin-bottom: 16px; color: #dc2626;">🚦 Page Status</h3>
+        <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+            Page ki apni health — kabhi suspend ho jata hai, flag ho jata hai waghera
+        </p>
+
+        <div class="form-group">
+            <label>Current Page Status *</label>
+            <select name="page_status" id="page_status" class="form-control" onchange="togglePageStatusNotes()">
+                <option value="active" {% if not page or page.page_status == 'active' %}selected{% endif %}>✅ Active — sab theek hai</option>
+                <option value="suspended" {% if page and page.page_status == 'suspended' %}selected{% endif %}>🚫 Suspended</option>
+                <option value="flagged" {% if page and page.page_status == 'flagged' %}selected{% endif %}>🚩 Flagged</option>
+                <option value="restricted" {% if page and page.page_status == 'restricted' %}selected{% endif %}>⚠️ Restricted</option>
+                <option value="unpublished" {% if page and page.page_status == 'unpublished' %}selected{% endif %}>👁️ Unpublished</option>
+                <option value="under_review" {% if page and page.page_status == 'under_review' %}selected{% endif %}>🔍 Under Review</option>
+                <option value="deleted" {% if page and page.page_status == 'deleted' %}selected{% endif %}>⛔ Deleted</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="page_status_notes_group" style="{% if not page or page.page_status == 'active' %}display:none;{% endif %}">
+            <label>Status Notes (kya hua, kab hua)</label>
+            <textarea name="page_status_notes" class="form-control" rows="2"
+                      placeholder="e.g. 15 July ko community standards violation par flag hua">{{ page.page_status_notes if page and page.page_status_notes else '' }}</textarea>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
         <h3 style="margin-bottom: 16px; color: #d62976;">💰 Monetization</h3>
         
         <div class="form-row">
@@ -149,6 +175,12 @@ function toggleRecoNotes() {
     const val = document.getElementById('recommendation').value;
     const group = document.getElementById('reco_notes_group');
     group.style.display = (val === 'not_okay') ? 'block' : 'none';
+}
+
+// Page status notes show/hide
+function togglePageStatusNotes() {
+    var val = document.getElementById('page_status').value;
+    document.getElementById('page_status_notes_group').style.display = (val === 'active') ? 'none' : 'block';
 }
 
 // Followers at start show/hide

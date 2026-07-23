@@ -1,138 +1,583 @@
 {% extends 'base.html' %}
-{% block page_title %}Owner Dashboard{% endblock %}
+{% block page_title %}Analytics Dashboard{% endblock %}
 
 {% block content %}
-<!-- TOP STATS -->
+<style>
+    .dash-grid { display: grid; gap: 16px; margin-bottom: 16px; }
+    .dash-2 { grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); }
+    .dash-3 { grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); }
+    .kpi-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 18px; }
+    .kpi { background: #fff; border: 1px solid #e4e6eb; border-radius: 10px; padding: 16px 18px;
+           display: flex; align-items: center; gap: 14px; }
+    .kpi-ico { width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center;
+               justify-content: center; font-size: 20px; flex-shrink: 0; }
+    .kpi-label { font-size: 12px; color: #65676b; margin-bottom: 2px; }
+    .kpi-value { font-size: 24px; font-weight: 700; line-height: 1.1; color: #1c1e21; }
+    .kpi-sub { font-size: 11px; color: #8a8d91; margin-top: 3px; }
+    .mini-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px; }
+    .mini { background: #f7f8fa; border-radius: 8px; padding: 12px; text-align: center; }
+    .mini-v { font-size: 20px; font-weight: 700; color: #1c1e21; }
+    .mini-l { font-size: 11px; color: #65676b; margin-top: 2px; }
+    .chart-box { position: relative; height: 260px; }
+    .legend-list { list-style: none; padding: 0; margin: 10px 0 0; max-height: 130px; overflow-y: auto; }
+    .legend-list li { display: flex; align-items: center; gap: 8px; font-size: 12.5px;
+                      padding: 3px 0; color: #4b4f56; }
+    .dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+    .legend-list .val { margin-left: auto; font-weight: 600; color: #1c1e21; }
+    .bar-row { display: flex; align-items: center; gap: 10px; margin-bottom: 9px; font-size: 13px; }
+    .bar-track { flex: 1; height: 8px; background: #eef0f3; border-radius: 4px; overflow: hidden; }
+    .bar-fill { height: 100%; border-radius: 4px; }
+    .qa { display: flex; gap: 8px; flex-wrap: wrap; }
+    .empty { text-align: center; color: #8a8d91; font-size: 13px; padding: 24px 0; }
+</style>
+
+<!-- ============ TOP KPIs ============ -->
+<div class="kpi-row">
+    <div class="kpi">
+        <div class="kpi-ico" style="background:#e7f3ff;">🔑</div>
+        <div>
+            <div class="kpi-label">Total FB IDs</div>
+            <div class="kpi-value">{{ "{:,}".format(total_fb_accounts) }}</div>
+            <div class="kpi-sub">{{ active_accounts }} active
+                {% if accounts_with_issues %}· <span style="color:#dc2626;">{{ accounts_with_issues }} issue</span>{% endif %}
+            </div>
+        </div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-ico" style="background:#ede9fe;">📄</div>
+        <div>
+            <div class="kpi-label">Total Pages</div>
+            <div class="kpi-value">{{ "{:,}".format(total_pages) }}</div>
+            <div class="kpi-sub">{{ monetized_pages }} monetized · {{ in_review }} in review</div>
+        </div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-ico" style="background:#dcfce7;">👣</div>
+        <div>
+            <div class="kpi-label">Page Followers</div>
+            <div class="kpi-value">{{ "{:,}".format(total_followers) }}</div>
+            <div class="kpi-sub">{{ fresh_start_pages }} fresh start pages</div>
+        </div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-ico" style="background:#e0f2fe;">👥</div>
+        <div>
+            <div class="kpi-label">Groups</div>
+            <div class="kpi-value">{{ "{:,}".format(total_groups) }}</div>
+            <div class="kpi-sub">{{ "{:,}".format(total_group_members) }} members</div>
+        </div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-ico" style="background:#fef3c7;">🏢</div>
+        <div>
+            <div class="kpi-label">Business Managers</div>
+            <div class="kpi-value">{{ total_bms }}</div>
+            <div class="kpi-sub">{{ total_partner_access }} partner access</div>
+        </div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-ico" style="background:#fce7f3;">🧑‍💼</div>
+        <div>
+            <div class="kpi-label">Team Members</div>
+            <div class="kpi-value">{{ total_team }}</div>
+            <div class="kpi-sub">{{ total_workers }} workers · {{ total_supervisors }} supervisors</div>
+        </div>
+    </div>
+
+    <div class="kpi">
+        <div class="kpi-ico" style="background:{{ health_color }}22;">💚</div>
+        <div>
+            <div class="kpi-label">Health Score</div>
+            <div class="kpi-value" style="color: {{ health_color }};">{{ health_score }}%</div>
+            <div class="kpi-sub">{{ health_label }}</div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ EARNINGS ROW ============ -->
 <div class="stats-grid">
     <div class="stat-card success">
         <div class="stat-label">Today's Earnings 💰</div>
         <div class="stat-value">${{ "%.2f"|format(total_earnings_today) }}</div>
         <div class="stat-sub">Sirf aap ko dikh raha hai</div>
     </div>
-    
     <div class="stat-card success">
         <div class="stat-label">Last 30 Days 💵</div>
         <div class="stat-value">${{ "%.2f"|format(total_earnings_30d) }}</div>
         <div class="stat-sub">{{ "{:,}".format(total_views_30d) }} views</div>
     </div>
-    
-    <div class="stat-card">
-        <div class="stat-label">Total Pages</div>
-        <div class="stat-value">{{ total_pages }}</div>
-        <div class="stat-sub">{{ total_fb_accounts }} FB Accounts</div>
-    </div>
-    
-    <div class="stat-card success">
-        <div class="stat-label">Monetized ✅</div>
-        <div class="stat-value">{{ monetized_pages }}</div>
-        <div class="stat-sub">{{ in_review }} in review</div>
-    </div>
-    
-    <div class="stat-card warning">
-        <div class="stat-label">Non-Monetized</div>
-        <div class="stat-value">{{ non_monetized }}</div>
-        <div class="stat-sub">Build karna hai</div>
-    </div>
-    
     <div class="stat-card warning">
         <div class="stat-label">Pending from FB</div>
         <div class="stat-value">${{ "%.2f"|format(pending_fb_payments) }}</div>
         <div class="stat-sub">FB se receive karna hai</div>
     </div>
-    
     <div class="stat-card danger">
         <div class="stat-label">Pending Team Payments</div>
         <div class="stat-value">PKR {{ "{:,.0f}".format(pending_team_payments) }}</div>
         <div class="stat-sub">Team ko ada karna hai</div>
     </div>
+    <div class="stat-card">
+        <div class="stat-label">FB IDs Investment</div>
+        <div class="stat-value">PKR {{ "{:,.0f}".format(total_investment) }}</div>
+        <div class="stat-sub">Total purchase cost</div>
+    </div>
 </div>
 
-<!-- CHARTS -->
+<!-- ============ COUNTRY + NICHE DONUTS ============ -->
+<div class="dash-grid dash-2">
+    <div class="card">
+        <div class="card-title">🌍 FB IDs by Country</div>
+        {% if country_data %}
+        <div class="chart-box"><canvas id="countryChart"></canvas></div>
+        <ul class="legend-list" id="countryLegend"></ul>
+        {% else %}
+        <div class="empty">Abhi koi FB ID add nahi ki</div>
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-title">🎯 Pages by Niche</div>
+        {% if niche_data %}
+        <div class="chart-box"><canvas id="nicheChart"></canvas></div>
+        <ul class="legend-list" id="nicheLegend"></ul>
+        {% else %}
+        <div class="empty">Abhi koi page add nahi kiya</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ============ HEALTH + MONETIZATION ============ -->
+<div class="dash-grid dash-2">
+    <div class="card">
+        <div class="card-title">🚦 Page Health &amp; Quality</div>
+        <div class="mini-grid" style="margin-bottom: 14px;">
+            <div class="mini">
+                <div class="mini-v" style="color:#047857;">{{ reco_okay }}</div>
+                <div class="mini-l">👍 Reco Okay</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#dc2626;">{{ reco_not_okay }}</div>
+                <div class="mini-l">👎 Not Okay</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#047857;">{{ pages_status_active }}</div>
+                <div class="mini-l">✅ Status Active</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#dc2626;">{{ pages_problem }}</div>
+                <div class="mini-l">⚠️ Problem</div>
+            </div>
+        </div>
+        {% if pstatus_data %}
+        <div style="font-size:12px;color:#65676b;margin-bottom:8px;">Page Status Breakdown</div>
+        {% set max_ps = pstatus_data[0][1] %}
+        {% for label, count in pstatus_data %}
+        <div class="bar-row">
+            <span style="width: 105px; color:#4b4f56;">{{ label }}</span>
+            <div class="bar-track">
+                <div class="bar-fill" style="width: {{ (count / max_ps * 100)|round(1) }}%;
+                     background: {% if label == 'Active' %}#10b981{% elif label in ['Suspended','Flagged','Deleted'] %}#dc2626{% else %}#f59e0b{% endif %};"></div>
+            </div>
+            <span style="width: 34px; text-align:right; font-weight:600;">{{ count }}</span>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-title">💰 Monetization Status</div>
+        <div class="chart-box" style="height: 240px;"><canvas id="monChart"></canvas></div>
+        <div class="mini-grid" style="margin-top: 12px;">
+            <div class="mini">
+                <div class="mini-v" style="color:#10b981;">{{ monetized_pages }}</div>
+                <div class="mini-l">Monetized</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#f59e0b;">{{ in_review }}</div>
+                <div class="mini-l">In Review</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#6b7280;">{{ non_monetized }}</div>
+                <div class="mini-l">Non-Monetized</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ============ 7 DAY PERFORMANCE ============ -->
 <div class="card">
     <div class="card-title">📈 Last 7 Days Performance</div>
-    <div class="chart-container">
+    <div class="chart-container" style="height: 280px;">
         <canvas id="performanceChart"></canvas>
     </div>
 </div>
 
-<!-- TOP PAGES -->
-<div class="card">
-    <div class="card-title">
-        🏆 Top Earning Pages (Last 30 Days)
-        <a href="{{ url_for('pages') }}" class="btn btn-primary btn-sm">View All</a>
+<!-- ============ TOP PAGES BY FOLLOWERS + TOP EARNING ============ -->
+<div class="dash-grid dash-2">
+    <div class="card">
+        <div class="card-title">
+            👣 Top Pages by Followers
+            <a href="{{ url_for('pages') }}" class="btn btn-secondary btn-sm">View All</a>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>#</th><th>Page</th><th>Followers</th><th>Status</th></tr></thead>
+                <tbody>
+                    {% for p in top_followers_pages %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="text-bold">{{ p.page_name }}</td>
+                        <td class="text-bold">{{ "{:,}".format(p.current_followers or 0) }}</td>
+                        <td><span class="status-badge status-{{ p.monetization_status }}">
+                            {{ p.monetization_status.replace('_',' ').title() }}</span></td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center text-muted">Abhi followers data nahi hai</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
     </div>
-    <div class="table-wrapper">
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Page Name</th>
-                    <th>Views (30d)</th>
-                    <th>Earnings (30d)</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for p in top_pages %}
-                <tr>
-                    <td>{{ loop.index }}</td>
-                    <td class="text-bold">{{ p.page_name }}</td>
-                    <td>{{ "{:,}".format(p.views or 0) }}</td>
-                    <td class="text-success text-bold">${{ "%.2f"|format(p.earnings or 0) }}</td>
-                </tr>
+
+    <div class="card">
+        <div class="card-title">
+            🏆 Top Earning Pages (30 Days)
+            <a href="{{ url_for('reports_list') }}" class="btn btn-secondary btn-sm">Reports</a>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>#</th><th>Page</th><th>Views</th><th>Earnings</th></tr></thead>
+                <tbody>
+                    {% for p in top_pages %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td class="text-bold">{{ p.page_name }}</td>
+                        <td>{{ "{:,}".format(p.views or 0) }}</td>
+                        <td class="text-success text-bold">${{ "%.2f"|format(p.earnings or 0) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="4" class="text-center text-muted">Abhi tak koi report nahi</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<!-- ============ BM + GROUPS + ISSUES ============ -->
+<div class="dash-grid dash-3">
+    <div class="card">
+        <div class="card-title">
+            🏢 Business Managers
+            <a href="{{ url_for('business_managers') }}" class="btn btn-secondary btn-sm">Manage</a>
+        </div>
+        <div class="mini-grid">
+            <div class="mini">
+                <div class="mini-v">{{ total_bms }}</div>
+                <div class="mini-l">Total BMs</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#10b981;">{{ active_bms }}</div>
+                <div class="mini-l">Active</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#5b21b6;">{{ total_partner_access }}</div>
+                <div class="mini-l">🤝 Partner Access</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#1e40af;">{{ bms_with_invites }}</div>
+                <div class="mini-l">🎁 Invites Given</div>
+            </div>
+        </div>
+        <div style="font-size:12px;color:#65676b;margin-top:12px;">
+            {{ bms_with_partners }} BM{% if bms_with_partners != 1 %}s{% endif %} ne kisi doosri BM ko access diya hai
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">
+            👥 Groups Overview
+            <a href="{{ url_for('groups') }}" class="btn btn-secondary btn-sm">Manage</a>
+        </div>
+        <div class="mini-grid">
+            <div class="mini">
+                <div class="mini-v">{{ total_groups }}</div>
+                <div class="mini-l">Total Groups</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#10b981;">{{ active_groups }}</div>
+                <div class="mini-l">Active</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v" style="color:#0369a1;">{{ "{:,}".format(total_group_members) }}</div>
+                <div class="mini-l">Total Members</div>
+            </div>
+            <div class="mini">
+                <div class="mini-v">{{ groups_linked_page }}/{{ groups_linked_account }}</div>
+                <div class="mini-l">Page/ID linked</div>
+            </div>
+        </div>
+        {% if top_groups %}
+        <div style="font-size:12px;color:#65676b;margin:12px 0 6px;">Top Groups</div>
+        {% for g in top_groups %}
+        <div style="display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;">
+            <span style="color:#4b4f56;">{{ g.group_name[:28] }}</span>
+            <span class="text-bold">{{ "{:,}".format(g.members_count or 0) }}</span>
+        </div>
+        {% endfor %}
+        {% endif %}
+    </div>
+
+    <div class="card">
+        <div class="card-title">⚠️ FB ID Issues</div>
+        {% if issue_data %}
+        {% set max_issue = issue_data[0][1] %}
+        {% for label, count in issue_data %}
+        <div class="bar-row">
+            <span style="width: 120px; color:#4b4f56;">{{ label }}</span>
+            <div class="bar-track">
+                <div class="bar-fill" style="width: {{ (count / max_issue * 100)|round(1) }}%; background:#f59e0b;"></div>
+            </div>
+            <span style="width: 30px; text-align:right; font-weight:600;">{{ count }}</span>
+        </div>
+        {% endfor %}
+        <div style="font-size:12px;color:#65676b;margin-top:10px;">
+            {{ accounts_with_issues }} / {{ total_fb_accounts }} IDs mein issue hai
+        </div>
+        {% else %}
+        <div class="empty">🎉 Kisi bhi FB ID mein koi issue nahi</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ============ TEAM PERFORMANCE + ATTENTION ============ -->
+<div class="dash-grid dash-2">
+    <div class="card">
+        <div class="card-title">
+            🧑‍💼 Team Performance (7 Days)
+            <a href="{{ url_for('team') }}" class="btn btn-secondary btn-sm">Team</a>
+        </div>
+        <div class="table-wrapper">
+            <table>
+                <thead><tr><th>Member</th><th>Role</th><th>Pages</th><th>Reports</th><th>Views</th></tr></thead>
+                <tbody>
+                    {% for m in team_perf %}
+                    <tr>
+                        <td class="text-bold">{{ m.name }}</td>
+                        <td><span class="user-badge badge-{{ m.role }}">{{ m.role }}</span></td>
+                        <td>{{ m.pages }}</td>
+                        <td>{{ m.reports }}</td>
+                        <td class="text-bold">{{ "{:,}".format(m.views) }}</td>
+                    </tr>
+                    {% else %}
+                    <tr><td colspan="5" class="text-center text-muted">Koi team member nahi</td></tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">🔔 Attention Chahiye ({{ attention|length }})</div>
+        {% if attention %}
+        <div class="table-wrapper" style="max-height: 300px; overflow-y: auto;">
+            <table>
+                <thead><tr><th>Type</th><th>Name</th><th>Issue</th><th></th></tr></thead>
+                <tbody>
+                    {% for a in attention %}
+                    <tr>
+                        <td style="font-size:12px;color:#65676b;">{{ a.type }}</td>
+                        <td class="text-bold">{{ a.name[:26] }}</td>
+                        <td><span style="background:#fee2e2;color:#991b1b;padding:2px 8px;border-radius:10px;font-size:11px;">
+                            {{ a.issue }}</span></td>
+                        <td><a href="{{ a.url }}" class="btn btn-secondary btn-sm">Fix</a></td>
+                    </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="empty">🎉 Sab kuch theek hai — koi issue nahi</div>
+        {% endif %}
+    </div>
+</div>
+
+<!-- ============ RECENT + QUICK ACTIONS ============ -->
+<div class="dash-grid dash-2">
+    <div class="card">
+        <div class="card-title">🕒 Recently Added</div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;">
+            <div>
+                <div style="font-size:12px;color:#65676b;margin-bottom:6px;">🔑 FB IDs</div>
+                {% for a in recent_accounts %}
+                <div style="font-size:12.5px;padding:2px 0;color:#4b4f56;">• {{ a.account_name[:22] }}</div>
                 {% else %}
-                <tr><td colspan="4" class="text-center text-muted">Abhi tak koi report nahi</td></tr>
+                <div class="text-muted" style="font-size:12px;">—</div>
                 {% endfor %}
-            </tbody>
-        </table>
+            </div>
+            <div>
+                <div style="font-size:12px;color:#65676b;margin-bottom:6px;">📄 Pages</div>
+                {% for p in recent_pages %}
+                <div style="font-size:12.5px;padding:2px 0;color:#4b4f56;">• {{ p.page_name[:22] }}</div>
+                {% else %}
+                <div class="text-muted" style="font-size:12px;">—</div>
+                {% endfor %}
+            </div>
+            <div>
+                <div style="font-size:12px;color:#65676b;margin-bottom:6px;">👥 Groups</div>
+                {% for g in recent_groups %}
+                <div style="font-size:12.5px;padding:2px 0;color:#4b4f56;">• {{ g.group_name[:22] }}</div>
+                {% else %}
+                <div class="text-muted" style="font-size:12px;">—</div>
+                {% endfor %}
+            </div>
+        </div>
+    </div>
+
+    <div class="card">
+        <div class="card-title">⚡ Quick Actions</div>
+        <div class="qa">
+            <a href="{{ url_for('add_fb_account') }}" class="btn btn-primary btn-sm">🔑 Add FB ID</a>
+            <a href="{{ url_for('add_page') }}" class="btn btn-primary btn-sm">📄 Add Page</a>
+            <a href="{{ url_for('add_business_manager') }}" class="btn btn-primary btn-sm">🏢 Add BM</a>
+            <a href="{{ url_for('add_group') }}" class="btn btn-primary btn-sm">👥 Add Group</a>
+            <a href="{{ url_for('add_team_member') }}" class="btn btn-secondary btn-sm">🧑‍💼 Add Member</a>
+            <a href="{{ url_for('submit_report') }}" class="btn btn-secondary btn-sm">📝 Submit Report</a>
+        </div>
+        <div style="font-size:12px;color:#65676b;margin:16px 0 8px;">📤 Backup — Excel export</div>
+        <div class="qa">
+            <a href="{{ url_for('export_fb_accounts') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">FB IDs</a>
+            <a href="{{ url_for('export_pages') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">Pages</a>
+            <a href="{{ url_for('export_business_managers') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">BMs</a>
+            <a href="{{ url_for('export_bm_partners') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">Partners</a>
+            <a href="{{ url_for('export_groups') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">Groups</a>
+            <a href="{{ url_for('export_team') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">Team</a>
+        </div>
     </div>
 </div>
 {% endblock %}
 
 {% block extra_js %}
 <script>
-const chartData = {{ chart_data | tojson }};
-const ctx = document.getElementById('performanceChart');
-new Chart(ctx, {
-    type: 'line',
-    data: {
-        labels: chartData.map(d => d.date),
-        datasets: [
-            {
-                label: 'Earnings ($)',
-                data: chartData.map(d => d.earnings),
-                borderColor: '#42b72a',
-                backgroundColor: 'rgba(66, 183, 42, 0.1)',
-                tension: 0.3,
-                yAxisID: 'y'
-            },
-            {
-                label: 'Views',
-                data: chartData.map(d => d.views),
-                borderColor: '#1877f2',
-                backgroundColor: 'rgba(24, 119, 242, 0.1)',
-                tension: 0.3,
-                yAxisID: 'y1'
-            }
-        ]
-    },
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        scales: {
-            y: { 
-                type: 'linear', 
-                position: 'left', 
-                title: { display: true, text: 'Earnings ($)' }
-            },
-            y1: { 
-                type: 'linear', 
-                position: 'right', 
-                title: { display: true, text: 'Views' },
-                grid: { drawOnChartArea: false }
+const PALETTE = ['#1877f2','#42b72a','#f59e0b','#7c3aed','#ec4899','#0ea5e9',
+                 '#14b8a6','#ef4444','#8b5cf6','#84cc16','#f97316','#64748b'];
+
+function donut(canvasId, legendId, labels, values) {
+    const el = document.getElementById(canvasId);
+    if (!el) return;
+    const total = values.reduce((a, b) => a + b, 0);
+
+    new Chart(el, {
+        type: 'doughnut',
+        data: {
+            labels: labels,
+            datasets: [{ data: values, backgroundColor: PALETTE, borderWidth: 2, borderColor: '#fff' }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            cutout: '62%',
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: function (c) {
+                            const pct = total ? (c.parsed / total * 100).toFixed(1) : 0;
+                            return ' ' + c.label + ': ' + c.parsed.toLocaleString() + ' (' + pct + '%)';
+                        }
+                    }
+                }
             }
         }
+    });
+
+    const legend = document.getElementById(legendId);
+    if (legend) {
+        legend.innerHTML = labels.map(function (l, i) {
+            const pct = total ? (values[i] / total * 100).toFixed(1) : 0;
+            return '<li><span class="dot" style="background:' + PALETTE[i % PALETTE.length] + '"></span>' +
+                   l + '<span class="val">' + values[i].toLocaleString() + ' (' + pct + '%)</span></li>';
+        }).join('');
     }
-});
+}
+
+// ---- Country donut ----
+{% if country_data %}
+donut('countryChart', 'countryLegend',
+    {{ country_data | map(attribute=0) | list | tojson }},
+    {{ country_data | map(attribute=1) | list | tojson }});
+{% endif %}
+
+// ---- Niche donut ----
+{% if niche_data %}
+donut('nicheChart', 'nicheLegend',
+    {{ niche_data | map(attribute=0) | list | tojson }},
+    {{ niche_data | map(attribute=1) | list | tojson }});
+{% endif %}
+
+// ---- Monetization donut ----
+(function () {
+    const el = document.getElementById('monChart');
+    if (!el) return;
+    new Chart(el, {
+        type: 'doughnut',
+        data: {
+            labels: ['Monetized', 'In Review', 'Non-Monetized'],
+            datasets: [{
+                data: [{{ monetized_pages }}, {{ in_review }}, {{ non_monetized }}],
+                backgroundColor: ['#10b981', '#f59e0b', '#94a3b8'],
+                borderWidth: 2, borderColor: '#fff'
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false, cutout: '62%',
+            plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, font: { size: 12 } } } }
+        }
+    });
+})();
+
+// ---- 7 day performance ----
+(function () {
+    const chartData = {{ chart_data | tojson }};
+    const el = document.getElementById('performanceChart');
+    if (!el) return;
+    new Chart(el, {
+        type: 'line',
+        data: {
+            labels: chartData.map(d => d.date),
+            datasets: [
+                {
+                    label: 'Earnings ($)',
+                    data: chartData.map(d => d.earnings),
+                    borderColor: '#42b72a',
+                    backgroundColor: 'rgba(66, 183, 42, 0.12)',
+                    tension: 0.3, fill: true, yAxisID: 'y'
+                },
+                {
+                    label: 'Views',
+                    data: chartData.map(d => d.views),
+                    borderColor: '#1877f2',
+                    backgroundColor: 'rgba(24, 119, 242, 0.10)',
+                    tension: 0.3, fill: true, yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: { legend: { position: 'top', labels: { boxWidth: 12 } } },
+            scales: {
+                y: { type: 'linear', position: 'left', title: { display: true, text: 'Earnings ($)' } },
+                y1: { type: 'linear', position: 'right', title: { display: true, text: 'Views' },
+                      grid: { drawOnChartArea: false } }
+            }
+        }
+    });
+})();
 </script>
 {% endblock %}

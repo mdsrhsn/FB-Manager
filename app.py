@@ -177,8 +177,123 @@ def dashboard():
             non_monetized=non_monetized
         )
 
-    else:  # OWNER - sab kuch dekhega including earnings
-        # Total earnings
+    else:  # OWNER - full analytics dashboard
+        # ---------- FB ACCOUNTS ----------
+        all_accounts = FBAccount.query.all()
+        total_accounts_all = len(all_accounts)
+        active_accounts = sum(1 for a in all_accounts if a.status == 'active')
+        accounts_with_issues = sum(1 for a in all_accounts if a.issue_type and a.issue_type != 'none')
+
+        # By country
+        country_map = {}
+        for a in all_accounts:
+            key = (a.location or '').strip() or 'Not Set'
+            country_map[key] = country_map.get(key, 0) + 1
+        country_data = sorted(country_map.items(), key=lambda x: x[1], reverse=True)
+
+        # By issue type
+        ISSUE_LABELS = {
+            'none': 'No Issue',
+            'whatsapp_code': 'WhatsApp Code',
+            'unknown_number': 'Unknown Number',
+            'banned': 'Banned',
+            'password_issue': 'Password Issue',
+            '2fa_issue': '2FA Issue',
+            'other': 'Other',
+        }
+        issue_map = {}
+        for a in all_accounts:
+            key = a.issue_type or 'none'
+            issue_map[key] = issue_map.get(key, 0) + 1
+        issue_data = sorted(
+            [(ISSUE_LABELS.get(k, k), v) for k, v in issue_map.items() if k != 'none'],
+            key=lambda x: x[1], reverse=True
+        )
+
+        # By account status
+        acc_status_map = {}
+        for a in all_accounts:
+            key = a.status or 'active'
+            acc_status_map[key] = acc_status_map.get(key, 0) + 1
+
+        # ---------- PAGES ----------
+        all_pages = Page.query.filter_by(is_active=True).all()
+        total_followers = sum(p.current_followers or 0 for p in all_pages)
+        fresh_start_pages = sum(1 for p in all_pages if p.is_fresh_start)
+
+        niche_map = {}
+        for p in all_pages:
+            key = (p.niche or '').strip() or 'Not Set'
+            niche_map[key] = niche_map.get(key, 0) + 1
+        niche_data = sorted(niche_map.items(), key=lambda x: x[1], reverse=True)
+
+        reco_okay = sum(1 for p in all_pages if (p.recommendation or 'okay') == 'okay')
+        reco_not_okay = len(all_pages) - reco_okay
+
+        PSTATUS_LABELS = {
+            'active': 'Active', 'suspended': 'Suspended', 'flagged': 'Flagged',
+            'restricted': 'Restricted', 'unpublished': 'Unpublished',
+            'under_review': 'Under Review', 'deleted': 'Deleted',
+        }
+        pstatus_map = {}
+        for p in all_pages:
+            key = p.page_status or 'active'
+            pstatus_map[key] = pstatus_map.get(key, 0) + 1
+        pstatus_data = [(PSTATUS_LABELS.get(k, k), v) for k, v in
+                        sorted(pstatus_map.items(), key=lambda x: x[1], reverse=True)]
+        pages_status_active = pstatus_map.get('active', 0)
+        pages_problem = len(all_pages) - pages_status_active
+
+        # Top pages by followers
+        top_followers_pages = sorted(
+            [p for p in all_pages if (p.current_followers or 0) > 0],
+            key=lambda p: p.current_followers or 0, reverse=True
+        )[:10]
+
+        # ---------- GROUPS ----------
+        all_groups = Group.query.all()
+        total_groups = len(all_groups)
+        total_group_members = sum(g.members_count or 0 for g in all_groups)
+        active_groups = sum(1 for g in all_groups if (g.status or 'active') == 'active')
+        groups_linked_page = sum(1 for g in all_groups if g.page_id)
+        groups_linked_account = sum(1 for g in all_groups if g.fb_account_id and not g.page_id)
+        top_groups = sorted(all_groups, key=lambda g: g.members_count or 0, reverse=True)[:5]
+
+        # ---------- BUSINESS MANAGERS ----------
+        all_bms = BusinessManager.query.all()
+        total_bms = len(all_bms)
+        active_bms = sum(1 for b in all_bms if b.status == 'active')
+        total_partner_access = BMPartnerAccess.query.count()
+        bms_with_invites = sum(1 for b in all_bms if b.invited_to_fb_account_id)
+        bms_with_partners = sum(1 for b in all_bms if b.partner_accesses)
+
+        # ---------- TEAM ----------
+        team_members = User.query.filter(User.role != 'owner').all()
+        total_team = len(team_members)
+        total_workers = sum(1 for m in team_members if m.role == 'worker')
+        total_supervisors = sum(1 for m in team_members if m.role == 'supervisor')
+
+        # Team performance (last 7 days)
+        team_perf = []
+        for m in team_members:
+            if not m.is_active:
+                continue
+            v = db.session.query(func.sum(DailyReport.views)).filter(
+                DailyReport.worker_id == m.id,
+                DailyReport.report_date >= last_7_days
+            ).scalar() or 0
+            assigned = Page.query.filter_by(assigned_worker_id=m.id, is_active=True).count()
+            reports_count = DailyReport.query.filter(
+                DailyReport.worker_id == m.id,
+                DailyReport.report_date >= last_7_days
+            ).count()
+            team_perf.append({
+                'name': m.full_name, 'role': m.role,
+                'pages': assigned, 'views': int(v), 'reports': reports_count
+            })
+        team_perf = sorted(team_perf, key=lambda x: x['views'], reverse=True)[:8]
+
+        # ---------- EARNINGS ----------
         total_earnings_30d = db.session.query(func.sum(DailyReport.earnings_usd)).filter(
             DailyReport.report_date >= last_30_days
         ).scalar() or 0
@@ -191,7 +306,6 @@ def dashboard():
             DailyReport.report_date >= last_30_days
         ).scalar() or 0
 
-        # Pending payments
         pending_fb_payments = db.session.query(func.sum(TeamPayment.total_earned_usd)).filter(
             TeamPayment.received_from_fb == False
         ).scalar() or 0
@@ -201,7 +315,8 @@ def dashboard():
             TeamPayment.paid_to_member == False
         ).scalar() or 0
 
-        # Top pages by earnings (last 30 days)
+        total_investment = sum(a.purchase_cost or 0 for a in all_accounts)
+
         top_pages = db.session.query(
             Page.page_name,
             func.sum(DailyReport.earnings_usd).label('earnings'),
@@ -226,19 +341,114 @@ def dashboard():
                 'views': int(views)
             })
 
+        # ---------- HEALTH SCORE ----------
+        signals = []
+        if all_pages:
+            signals.append(reco_okay / len(all_pages))
+            signals.append(pages_status_active / len(all_pages))
+        if total_accounts_all:
+            signals.append((total_accounts_all - accounts_with_issues) / total_accounts_all)
+            signals.append(active_accounts / total_accounts_all)
+        if total_bms:
+            signals.append(active_bms / total_bms)
+        if total_groups:
+            signals.append(active_groups / total_groups)
+        health_score = int(round(sum(signals) / len(signals) * 100)) if signals else 100
+
+        if health_score >= 90:
+            health_label, health_color = 'Excellent', '#10b981'
+        elif health_score >= 75:
+            health_label, health_color = 'Good', '#42b72a'
+        elif health_score >= 60:
+            health_label, health_color = 'Fair', '#f59e0b'
+        else:
+            health_label, health_color = 'Needs Attention', '#dc2626'
+
+        # ---------- RECENT ACTIVITY ----------
+        recent_accounts = FBAccount.query.order_by(FBAccount.created_at.desc()).limit(4).all()
+        recent_pages = Page.query.order_by(Page.created_at.desc()).limit(4).all()
+        recent_groups = Group.query.order_by(Group.created_at.desc()).limit(3).all()
+
+        # Attention list — jinko dekhna zaroori hai
+        attention = []
+        for a in all_accounts:
+            if a.issue_type and a.issue_type != 'none':
+                attention.append({'type': 'FB ID', 'name': a.account_name,
+                                  'issue': ISSUE_LABELS.get(a.issue_type, a.issue_type),
+                                  'url': url_for('edit_fb_account', account_id=a.id)})
+        for p in all_pages:
+            if (p.page_status or 'active') != 'active':
+                attention.append({'type': 'Page', 'name': p.page_name,
+                                  'issue': PSTATUS_LABELS.get(p.page_status, p.page_status),
+                                  'url': url_for('edit_page', page_id=p.id)})
+            elif (p.recommendation or 'okay') == 'not_okay':
+                attention.append({'type': 'Page', 'name': p.page_name,
+                                  'issue': 'Recommendation Not Okay',
+                                  'url': url_for('edit_page', page_id=p.id)})
+        for g in all_groups:
+            if (g.status or 'active') != 'active':
+                attention.append({'type': 'Group', 'name': g.group_name,
+                                  'issue': (g.status or '').title(),
+                                  'url': url_for('edit_group', group_id=g.id)})
+        attention = attention[:12]
+
         return render_template('dashboard_owner.html',
+            # counts
             total_pages=total_pages,
             monetized_pages=monetized_pages,
             non_monetized=non_monetized,
             in_review=in_review,
-            total_fb_accounts=total_fb_accounts,
+            total_fb_accounts=total_accounts_all,
+            active_accounts=active_accounts,
+            accounts_with_issues=accounts_with_issues,
+            total_followers=total_followers,
+            fresh_start_pages=fresh_start_pages,
+            pages_status_active=pages_status_active,
+            pages_problem=pages_problem,
+            reco_okay=reco_okay,
+            reco_not_okay=reco_not_okay,
+            # groups
+            total_groups=total_groups,
+            total_group_members=total_group_members,
+            active_groups=active_groups,
+            groups_linked_page=groups_linked_page,
+            groups_linked_account=groups_linked_account,
+            top_groups=top_groups,
+            # bms
+            total_bms=total_bms,
+            active_bms=active_bms,
+            total_partner_access=total_partner_access,
+            bms_with_invites=bms_with_invites,
+            bms_with_partners=bms_with_partners,
+            # team
+            total_team=total_team,
+            total_workers=total_workers,
+            total_supervisors=total_supervisors,
+            team_perf=team_perf,
+            # money
             total_earnings_30d=total_earnings_30d,
             total_earnings_today=total_earnings_today,
             total_views_30d=total_views_30d,
             pending_fb_payments=pending_fb_payments,
             pending_team_payments=pending_team_payments,
+            total_investment=total_investment,
             top_pages=top_pages,
-            chart_data=chart_data
+            top_followers_pages=top_followers_pages,
+            # charts
+            chart_data=chart_data,
+            country_data=country_data,
+            niche_data=niche_data,
+            issue_data=issue_data,
+            pstatus_data=pstatus_data,
+            acc_status_map=acc_status_map,
+            # health + activity
+            health_score=health_score,
+            health_label=health_label,
+            health_color=health_color,
+            recent_accounts=recent_accounts,
+            recent_pages=recent_pages,
+            recent_groups=recent_groups,
+            attention=attention
         )
 
 
@@ -669,7 +879,7 @@ def export_pages():
         'Assigned Worker', 'Monetization Status', 'Monetized Date',
         'Page Created Date', 'Notes',
         'Recommendation', 'Recommendation Notes', 'Fresh Start',
-        'Followers At Start', 'Current Followers'
+        'Followers At Start', 'Current Followers', 'Page Status'
     ]
     _style_header(ws, headers, '42b72a')
 
@@ -690,10 +900,11 @@ def export_pages():
             p.recommendation_notes or '',
             'Yes' if p.is_fresh_start else 'No',
             p.followers_at_start or 0,
-            p.current_followers or 0
+            p.current_followers or 0,
+            p.page_status or 'active'
         ])
 
-    column_widths = [25, 35, 15, 20, 20, 20, 18, 14, 14, 30, 15, 30, 12, 16, 16]
+    column_widths = [25, 35, 15, 20, 20, 20, 18, 14, 14, 30, 15, 30, 12, 16, 16, 14]
     for i, width in enumerate(column_widths, 1):
         ws.column_dimensions[chr(64 + i)].width = width
 
@@ -718,17 +929,17 @@ def pages_template():
         'Assigned Worker', 'Monetization Status', 'Monetized Date',
         'Page Created Date', 'Notes',
         'Recommendation', 'Recommendation Notes', 'Fresh Start',
-        'Followers At Start', 'Current Followers'
+        'Followers At Start', 'Current Followers', 'Page Status'
     ]
     _style_header(ws, headers, '42b72a')
 
     samples = [
         ['Comedy Hub', 'https://fb.com/comedyhub', 'Comedy', 'Mudassar FB 1', '',
          '', 'monetized', '2024-03-15', '2023-12-01', 'Top performer',
-         'okay', '', 'Yes', 0, 45000],
+         'okay', '', 'Yes', 0, 45000, 'active'],
         ['News Pakistan', 'https://fb.com/newspk', 'News', 'Mudassar FB 1', 'Main BM',
          'Ali Worker', 'non_monetized', '', '2024-01-10', '',
-         'not_okay', 'Recommendation issue', 'No', 12000, 15000],
+         'not_okay', 'Recommendation issue', 'No', 12000, 15000, 'suspended'],
     ]
     for row in samples:
         ws.append(row)
@@ -742,7 +953,8 @@ def pages_template():
         '4. Monetization Status: monetized, non_monetized, in_review, suspended',
         '5. Dates: YYYY-MM-DD format mein (e.g. 2024-03-15)',
         '6. Recommendation: okay ya not_okay',
-        '7. Fresh Start: Yes ya No (agar No to Followers At Start likhen)'
+        '7. Fresh Start: Yes ya No (agar No to Followers At Start likhen)',
+        '8. Page Status: active, suspended, flagged, restricted, unpublished'
     ]
     for i, note in enumerate(notes, start=5):
         cell = ws.cell(row=i, column=1, value=note)
@@ -849,7 +1061,12 @@ def import_pages():
                     recommendation_notes=str(row[11]).strip() if len(row) > 11 and row[11] else None,
                     is_fresh_start=is_fresh,
                     followers_at_start=_parse_int(row[13] if len(row) > 13 else 0),
-                    current_followers=_parse_int(row[14] if len(row) > 14 else 0)
+                    current_followers=_parse_int(row[14] if len(row) > 14 else 0),
+                    page_status=(str(row[15]).strip().lower()
+                                 if len(row) > 15 and row[15]
+                                 and str(row[15]).strip().lower() in
+                                 ['active','suspended','flagged','restricted','unpublished']
+                                 else 'active')
                 )
                 db.session.add(page)
                 imported += 1
@@ -1321,7 +1538,9 @@ def add_page():
             recommendation_notes=request.form.get('recommendation_notes') or None,
             is_fresh_start=is_fresh,
             followers_at_start=0 if is_fresh else _parse_int(request.form.get('followers_at_start')),
-            current_followers=_parse_int(request.form.get('current_followers'))
+            current_followers=_parse_int(request.form.get('current_followers')),
+            page_status=request.form.get('page_status', 'active'),
+            page_status_notes=request.form.get('page_status_notes') or None
         )
         db.session.add(page)
         db.session.commit()
@@ -1359,6 +1578,8 @@ def edit_page(page_id):
         page.is_fresh_start = is_fresh
         page.followers_at_start = 0 if is_fresh else _parse_int(request.form.get('followers_at_start'))
         page.current_followers = _parse_int(request.form.get('current_followers'))
+        page.page_status = request.form.get('page_status', 'active')
+        page.page_status_notes = request.form.get('page_status_notes') or None
 
         db.session.commit()
         flash('Page update ho gaya', 'success')
@@ -1392,6 +1613,226 @@ def delete_page(page_id):
         msg += f' (uske {report_count} reports bhi delete hue)'
     flash(msg, 'success')
     return redirect(url_for('pages'))
+
+
+# ==================== GROUPS (V2 NEW - Feature 7) ====================
+@app.route('/groups')
+@login_required
+@owner_or_supervisor
+def groups():
+    """Saare groups ki list"""
+    groups_list = Group.query.order_by(Group.created_at.desc()).all()
+    return render_template('groups.html', groups=groups_list)
+
+
+@app.route('/groups/add', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def add_group():
+    if request.method == 'POST':
+        page_id = request.form.get('page_id')
+        fb_account_id = request.form.get('fb_account_id')
+
+        group = Group(
+            group_name=request.form.get('group_name'),
+            group_url=request.form.get('group_url') or None,
+            group_fb_id=request.form.get('group_fb_id') or None,
+            page_id=int(page_id) if page_id else None,
+            fb_account_id=int(fb_account_id) if fb_account_id else None,
+            members_count=_parse_int(request.form.get('members_count')),
+            status=request.form.get('status', 'active'),
+            notes=request.form.get('notes') or None
+        )
+        db.session.add(group)
+        db.session.commit()
+        flash('Group add ho gaya', 'success')
+        return redirect(url_for('groups'))
+
+    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    pages_list = Page.query.filter_by(is_active=True).order_by(Page.page_name).all()
+    return render_template('group_form.html', group=None, fb_accounts=fb_accounts_list, pages=pages_list)
+
+
+@app.route('/groups/<int:group_id>/edit', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def edit_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    if request.method == 'POST':
+        page_id = request.form.get('page_id')
+        fb_account_id = request.form.get('fb_account_id')
+
+        group.group_name = request.form.get('group_name')
+        group.group_url = request.form.get('group_url') or None
+        group.group_fb_id = request.form.get('group_fb_id') or None
+        group.page_id = int(page_id) if page_id else None
+        group.fb_account_id = int(fb_account_id) if fb_account_id else None
+        group.members_count = _parse_int(request.form.get('members_count'))
+        group.status = request.form.get('status', 'active')
+        group.notes = request.form.get('notes') or None
+
+        db.session.commit()
+        flash('Group update ho gaya', 'success')
+        return redirect(url_for('groups'))
+
+    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    pages_list = Page.query.filter_by(is_active=True).order_by(Page.page_name).all()
+    return render_template('group_form.html', group=group, fb_accounts=fb_accounts_list, pages=pages_list)
+
+
+@app.route('/groups/<int:group_id>/delete', methods=['POST'])
+@login_required
+@owner_required
+def delete_group(group_id):
+    group = Group.query.get_or_404(group_id)
+    group_name = group.group_name
+    db.session.delete(group)
+    db.session.commit()
+    flash(f'Group "{group_name}" delete ho gaya', 'success')
+    return redirect(url_for('groups'))
+
+
+@app.route('/groups/export')
+@login_required
+@owner_required
+def export_groups():
+    """Saare groups Excel mein export karen"""
+    from openpyxl import Workbook
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Groups"
+
+    headers = [
+        'Group Name', 'Group URL', 'Group FB ID', 'Linked Page',
+        'Linked FB Account', 'Members', 'Status', 'Notes'
+    ]
+    _style_header(ws, headers, '0ea5e9')
+
+    for g in Group.query.all():
+        ws.append([
+            g.group_name or '',
+            g.group_url or '',
+            g.group_fb_id or '',
+            g.page.page_name if g.page else '',
+            g.fb_account.account_name if g.fb_account else '',
+            g.members_count or 0,
+            g.status or 'active',
+            g.notes or ''
+        ])
+
+    for i, w in enumerate([28, 35, 20, 25, 22, 14, 14, 30], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+
+    return _excel_response(wb, f"groups_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
+
+
+@app.route('/groups/template')
+@login_required
+@owner_required
+def groups_template():
+    """Groups import ke liye sample template"""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Groups Template"
+
+    headers = [
+        'Group Name', 'Group URL', 'Group FB ID', 'Linked Page',
+        'Linked FB Account', 'Members', 'Status', 'Notes'
+    ]
+    _style_header(ws, headers, '0ea5e9')
+
+    ws.append(['Comedy Lovers PK', 'https://facebook.com/groups/comedypk', '123456789',
+               'Comedy Hub', '', 45000, 'active', 'Main group'])
+    ws.append(['News Discussion', 'https://facebook.com/groups/newspk', '',
+               '', 'Mudassar FB 1', 12000, 'active', ''])
+
+    notes = [
+        '',
+        'Notes:',
+        '1. Linked Page: page ka exact naam (optional)',
+        '2. Linked FB Account: account ka exact naam (optional)',
+        '3. Group ya to page se linked ho sakta hai ya FB account se (ya dono khali)',
+        '4. Status: active, restricted, suspended, deleted',
+    ]
+    for i, note in enumerate(notes, start=5):
+        cell = ws.cell(row=i, column=1, value=note)
+        if i > 5:
+            cell.font = Font(italic=True, color='888888', size=11)
+
+    for i, w in enumerate([28, 35, 20, 25, 22, 14, 14, 30], 1):
+        ws.column_dimensions[chr(64+i)].width = w
+
+    return _excel_response(wb, 'groups_template.xlsx')
+
+
+@app.route('/groups/import', methods=['POST'])
+@login_required
+@owner_required
+def import_groups():
+    """Excel se groups bulk import"""
+    from openpyxl import load_workbook
+
+    if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
+        flash('Koi file select nahi ki gayi', 'error')
+        return redirect(url_for('groups'))
+
+    try:
+        wb = load_workbook(request.files['excel_file'], data_only=True)
+        ws = wb.active
+        imported, skipped, errors = 0, 0, []
+
+        for row_num, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+            if not row or not any(row):
+                continue
+            try:
+                group_name = str(row[0]).strip() if row[0] else None
+                if not group_name:
+                    skipped += 1
+                    continue
+                if Group.query.filter_by(group_name=group_name).first():
+                    skipped += 1
+                    continue
+
+                page_obj = None
+                if len(row) > 3 and row[3]:
+                    page_obj = Page.query.filter_by(page_name=str(row[3]).strip()).first()
+
+                acc_obj = None
+                if len(row) > 4 and row[4]:
+                    acc_obj = FBAccount.query.filter_by(account_name=str(row[4]).strip()).first()
+
+                status = str(row[6]).strip().lower() if len(row) > 6 and row[6] else 'active'
+                if status not in ['active', 'restricted', 'suspended', 'deleted']:
+                    status = 'active'
+
+                group = Group(
+                    group_name=group_name,
+                    group_url=str(row[1]).strip() if len(row) > 1 and row[1] else None,
+                    group_fb_id=str(row[2]).strip() if len(row) > 2 and row[2] else None,
+                    page_id=page_obj.id if page_obj else None,
+                    fb_account_id=acc_obj.id if acc_obj else None,
+                    members_count=_parse_int(row[5] if len(row) > 5 else 0),
+                    status=status,
+                    notes=str(row[7]).strip() if len(row) > 7 and row[7] else None
+                )
+                db.session.add(group)
+                imported += 1
+            except Exception as e:
+                errors.append(f"Row {row_num}: {str(e)}")
+
+        db.session.commit()
+        msg = f'{imported} groups import ho gaye'
+        if skipped > 0:
+            msg += f' | {skipped} skip kiye'
+        if errors:
+            msg += f' | {len(errors)} errors'
+        flash(msg, 'success' if imported > 0 else 'warning')
+    except Exception as e:
+        flash(f'Import error: {str(e)}', 'error')
+
+    return redirect(url_for('groups'))
 
 
 # ==================== DAILY REPORTS ====================
