@@ -22,13 +22,13 @@
                 <span class="icon">🏠</span> Dashboard
             </a></li>
 
-            {% if current_user.is_owner() or current_user.is_supervisor() %}
+            {% if can('view_fb_accounts') %}
             <li><a href="{{ url_for('fb_accounts') }}" class="{% if request.endpoint == 'fb_accounts' %}active{% endif %}">
                 <span class="icon">🔑</span> FB Accounts
             </a></li>
             {% endif %}
 
-            {% if current_user.is_owner() %}
+            {% if can('view_bms') %}
             <li><a href="{{ url_for('business_managers') }}" class="{% if 'business_manager' in request.endpoint %}active{% endif %}">
                 <span class="icon">🏢</span> Business Managers
             </a></li>
@@ -38,7 +38,7 @@
                 <span class="icon">📄</span> Pages
             </a></li>
 
-            {% if current_user.is_owner() or current_user.is_supervisor() %}
+            {% if can('view_groups') %}
             <li><a href="{{ url_for('groups') }}" class="{% if 'group' in request.endpoint %}active{% endif %}">
                 <span class="icon">👥</span> Groups
             </a></li>
@@ -52,7 +52,7 @@
                 <span class="icon">📈</span> Reports
             </a></li>
 
-            {% if current_user.is_owner() or current_user.is_supervisor() %}
+            {% if can('view_team') %}
             <li><a href="{{ url_for('team') }}" class="{% if 'team' in request.endpoint %}active{% endif %}">
                 <span class="icon">🧑‍💼</span> Team
             </a></li>
@@ -64,7 +64,21 @@
             </a></li>
             {% endif %}
 
-            <li style="margin-top: 2rem;"><a href="{{ url_for('logout') }}">
+            {% if current_user.is_owner() %}
+            <li><a href="{{ url_for('activity_log') }}" class="{% if request.endpoint == 'activity_log' %}active{% endif %}">
+                <span class="icon">📋</span> Activity Log
+            </a></li>
+
+            <li><a href="{{ url_for('export_master') }}">
+                <span class="icon">📦</span> Master Excel
+            </a></li>
+            {% endif %}
+
+            <li style="margin-top: 1.2rem;"><a href="{{ url_for('change_password') }}" class="{% if request.endpoint == 'change_password' %}active{% endif %}">
+                <span class="icon">🔒</span> Change Password
+            </a></li>
+
+            <li><a href="{{ url_for('logout') }}">
                 <span class="icon">🚪</span> Logout
             </a></li>
         </ul>

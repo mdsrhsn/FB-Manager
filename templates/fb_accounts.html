@@ -5,41 +5,31 @@
 <div class="card">
     <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <div>🔑 All Facebook Accounts (<span id="total-count">{{ accounts|length }}</span>)</div>
-        
-        {% if current_user.is_owner() %}
+
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-            <a href="{{ url_for('add_fb_account') }}" class="btn btn-primary btn-sm">
-                ➕ Add Account
-            </a>
-            
-            <button type="button" onclick="document.getElementById('importModal').style.display='flex'" 
-                    class="btn btn-sm" style="background: #42b72a; color: white;">
-                📥 Import Excel
-            </button>
-            
-            <a href="{{ url_for('export_fb_accounts') }}" 
-               class="btn btn-sm" style="background: #f59e0b; color: white;">
-                📤 Export Excel
-            </a>
-            
-            <a href="{{ url_for('fb_accounts_template') }}" 
-               class="btn btn-sm btn-secondary">
-                📄 Download Template
-            </a>
+            {% if can('add_edit') %}
+            <a href="{{ url_for('add_fb_account') }}" class="btn btn-primary btn-sm">➕ Add Account</a>
+            <button type="button" onclick="document.getElementById('importModal').style.display='flex'"
+                    class="btn btn-sm" style="background: #42b72a; color: white;">📥 Import Excel</button>
+            {% endif %}
+            {% if can('export') %}
+            <a href="{{ url_for('export_fb_accounts') }}"
+               class="btn btn-sm" style="background: #f59e0b; color: white;">📤 Export Excel</a>
+            <a href="{{ url_for('fb_accounts_template') }}" class="btn btn-sm btn-secondary">📄 Download Template</a>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
-    
-    {# ============ NEW: Search Bar ============ #}
+
+    {# ============ SEARCH BAR ============ #}
     <div style="padding: 12px 16px; background: #f7f8fa; border-radius: 6px; margin-bottom: 12px;">
         <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
             <span style="font-size: 18px;">🔍</span>
-            <input type="text" 
-                   id="search-input" 
-                   placeholder="Search karen — Account Name, Email, Phone, Location, Username..." 
+            <input type="text"
+                   id="search-input"
+                   placeholder="Search karen — Account Name, Email, Phone, Location, Username..."
                    style="flex: 1; min-width: 250px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
                    oninput="filterAccounts()">
-            <select id="issue-filter" 
+            <select id="issue-filter"
                     style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
                     onchange="filterAccounts()">
                 <option value="">All Issues</option>
@@ -51,14 +41,12 @@
                 <option value="2fa_issue">🔒 2FA Issue</option>
                 <option value="other">📝 Other</option>
             </select>
-            <button type="button" onclick="clearSearch()" 
-                    class="btn btn-sm btn-secondary" style="white-space: nowrap;">
-                ✖ Clear
-            </button>
+            <button type="button" onclick="clearSearch()"
+                    class="btn btn-sm btn-secondary" style="white-space: nowrap;">✖ Clear</button>
             <span id="filter-result" style="color: #65676b; font-size: 13px; white-space: nowrap;"></span>
         </div>
     </div>
-    
+
     <div class="table-wrapper">
         <table id="accounts-table">
             <thead>
@@ -68,18 +56,18 @@
                     <th>🌍 Location</th>
                     <th>👤 Username</th>
                     <th>⚠️ Issue</th>
-                    {% if current_user.is_owner() %}<th>Password</th>{% endif %}
+                    {% if can('view_passwords') %}<th>Password</th>{% endif %}
                     <th>Pages</th>
                     <th>BMs</th>
                     <th>Purchase Date</th>
-                    {% if current_user.is_owner() %}<th>Cost</th>{% endif %}
+                    {% if can('view_passwords') %}<th>Cost</th>{% endif %}
                     <th>Status</th>
-                    {% if current_user.is_owner() %}<th>Action</th>{% endif %}
+                    {% if can('add_edit') or can('delete') %}<th>Action</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
                 {% for a in accounts %}
-                <tr class="account-row" 
+                <tr class="account-row"
                     data-name="{{ (a.account_name or '')|lower }}"
                     data-email="{{ (a.email or '')|lower }}"
                     data-phone="{{ (a.phone or '')|lower }}"
@@ -89,15 +77,16 @@
                     <td class="text-bold">
                         {{ a.account_name }}
                         {% if a.profile_link %}
-                        <a href="{{ a.profile_link }}" target="_blank" style="color: #1877F2; text-decoration: none; font-size: 12px; margin-left: 4px;" title="Open FB profile">🔗</a>
+                        <a href="{{ a.profile_link }}" target="_blank"
+                           style="color: #1877F2; text-decoration: none; font-size: 12px; margin-left: 4px;"
+                           title="Open FB profile">🔗</a>
                         {% endif %}
                     </td>
                     <td>
                         {% if a.email %}<div style="font-size:0.85rem">{{ a.email }}</div>{% endif %}
                         {% if a.phone %}<div style="font-size:0.85rem" class="text-muted">{{ a.phone }}</div>{% endif %}
                     </td>
-                    
-                    {# NEW: Location column #}
+
                     <td>
                         {% if a.location %}
                             <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;">
@@ -107,8 +96,7 @@
                             <span class="text-muted" style="font-size: 12px;">-</span>
                         {% endif %}
                     </td>
-                    
-                    {# NEW: Username column #}
+
                     <td>
                         {% if a.profile_username %}
                             <span style="font-family: monospace; font-size: 12px; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">
@@ -118,8 +106,7 @@
                             <span class="text-muted" style="font-size: 12px;">-</span>
                         {% endif %}
                     </td>
-                    
-                    {# NEW: Issue indicator #}
+
                     <td>
                         {% if a.issue_type and a.issue_type != 'none' %}
                             {% set issue_labels = {
@@ -139,19 +126,17 @@
                             <span style="color: #10b981; font-size: 14px;">✅</span>
                         {% endif %}
                     </td>
-                    
-                    {% if current_user.is_owner() %}
+
+                    {% if can('view_passwords') %}
                     <td>
                         {% if a.fb_password %}
                         <div style="display: flex; align-items: center; gap: 6px;">
                             <span id="pwd-{{ a.id }}" style="font-family: monospace; font-size: 13px;">••••••••</span>
-                            <button type="button" 
-                                    onclick="togglePwd({{ a.id }})"
+                            <button type="button" onclick="togglePwd({{ a.id }})"
                                     style="background: none; border: 1px solid #ddd; cursor: pointer; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #1877F2;">
                                 👁️
                             </button>
-                            <button type="button" 
-                                    onclick="copyPwd({{ a.id }}, this)"
+                            <button type="button" onclick="copyPwd({{ a.id }}, this)"
                                     style="background: none; border: 1px solid #ddd; cursor: pointer; padding: 2px 8px; border-radius: 4px; font-size: 11px; color: #42b72a;">
                                 📋
                             </button>
@@ -161,28 +146,31 @@
                         {% endif %}
                     </td>
                     {% endif %}
-                    
+
                     <td>{{ a.pages|length }}</td>
                     <td>{{ a.business_managers|length }}</td>
                     <td>{{ a.purchase_date.strftime('%d %b %Y') if a.purchase_date else '-' }}</td>
-                    {% if current_user.is_owner() %}
+                    {% if can('view_passwords') %}
                     <td>PKR {{ "{:,.0f}".format(a.purchase_cost or 0) }}</td>
                     {% endif %}
                     <td><span class="status-badge status-{{ a.status }}">{{ a.status }}</span></td>
-                    {% if current_user.is_owner() %}
+
+                    {% if can('add_edit') or can('delete') %}
                     <td>
                         <div style="display: flex; gap: 4px;">
+                            {% if can('add_edit') %}
                             <a href="{{ url_for('edit_fb_account', account_id=a.id) }}" class="btn btn-secondary btn-sm">Edit</a>
-                            
-                            {# NEW: Delete button #}
-                            <form method="POST" action="{{ url_for('delete_fb_account', account_id=a.id) }}" 
+                            {% endif %}
+                            {% if can('delete') %}
+                            <form method="POST" action="{{ url_for('delete_fb_account', account_id=a.id) }}"
                                   style="display:inline; margin:0;"
                                   onsubmit="return confirmDelete('{{ a.account_name|e }}', {{ a.pages|length }}, {{ a.business_managers|length }});">
-                                <button type="submit" class="btn btn-sm" 
+                                <button type="submit" class="btn btn-sm"
                                         style="background: #dc2626; color: white; padding: 4px 10px; font-size: 12px;">
                                     🗑️ Delete
                                 </button>
                             </form>
+                            {% endif %}
                         </div>
                     </td>
                     {% endif %}
@@ -196,13 +184,13 @@
 </div>
 
 <!-- Import Excel Modal -->
-{% if current_user.is_owner() %}
-<div id="importModal" 
-     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
+{% if can('add_edit') %}
+<div id="importModal"
+     style="display:none; position:fixed; top:0; left:0; width:100%; height:100%;
             background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">
     <div style="background:white; padding:30px; border-radius:8px; max-width:500px; width:90%;">
         <h3 style="margin-bottom: 16px;">📥 Import FB Accounts from Excel</h3>
-        
+
         <div style="background: #fff3cd; padding: 12px; border-radius: 6px; margin-bottom: 16px; font-size: 13px;">
             <strong>⚠️ Hidayat:</strong>
             <ul style="margin: 8px 0 0 20px; padding: 0;">
@@ -212,16 +200,16 @@
                 <li>Duplicate account names skip ho jayen ge</li>
             </ul>
         </div>
-        
+
         <form method="POST" action="{{ url_for('import_fb_accounts') }}" enctype="multipart/form-data">
             <div class="form-group">
                 <label>Excel File (.xlsx)</label>
                 <input type="file" name="excel_file" accept=".xlsx,.xls" required class="form-control">
             </div>
-            
+
             <div style="display: flex; gap: 10px; margin-top: 16px;">
-                <button type="submit" class="btn btn-primary">📥 Upload & Import</button>
-                <button type="button" onclick="document.getElementById('importModal').style.display='none'" 
+                <button type="submit" class="btn btn-primary">📥 Upload &amp; Import</button>
+                <button type="button" onclick="document.getElementById('importModal').style.display='none'"
                         class="btn btn-secondary">Cancel</button>
             </div>
         </form>
@@ -236,26 +224,17 @@ function filterAccounts() {
     const issueFilter = document.getElementById('issue-filter').value;
     const rows = document.querySelectorAll('.account-row');
     let visibleCount = 0;
-    
+
     rows.forEach(row => {
-        const name = row.dataset.name || '';
-        const email = row.dataset.email || '';
-        const phone = row.dataset.phone || '';
-        const location = row.dataset.location || '';
-        const username = row.dataset.username || '';
-        const issue = row.dataset.issue || 'none';
-        
-        // Search match
-        const searchMatch = !searchTerm || 
-            name.includes(searchTerm) ||
-            email.includes(searchTerm) ||
-            phone.includes(searchTerm) ||
-            location.includes(searchTerm) ||
-            username.includes(searchTerm);
-        
-        // Issue filter match
-        const issueMatch = !issueFilter || issue === issueFilter;
-        
+        const searchMatch = !searchTerm ||
+            (row.dataset.name || '').includes(searchTerm) ||
+            (row.dataset.email || '').includes(searchTerm) ||
+            (row.dataset.phone || '').includes(searchTerm) ||
+            (row.dataset.location || '').includes(searchTerm) ||
+            (row.dataset.username || '').includes(searchTerm);
+
+        const issueMatch = !issueFilter || (row.dataset.issue || 'none') === issueFilter;
+
         if (searchMatch && issueMatch) {
             row.style.display = '';
             visibleCount++;
@@ -263,12 +242,10 @@ function filterAccounts() {
             row.style.display = 'none';
         }
     });
-    
-    // Update result count
+
     const resultEl = document.getElementById('filter-result');
-    const totalRows = rows.length;
     if (searchTerm || issueFilter) {
-        resultEl.textContent = `${visibleCount} / ${totalRows} accounts`;
+        resultEl.textContent = visibleCount + ' / ' + rows.length + ' accounts';
         resultEl.style.color = visibleCount === 0 ? '#dc2626' : '#65676b';
     } else {
         resultEl.textContent = '';
@@ -282,37 +259,34 @@ function clearSearch() {
     document.getElementById('search-input').focus();
 }
 
-// Keyboard shortcut: Ctrl+K to focus search
 document.addEventListener('keydown', function(e) {
     if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
         e.preventDefault();
-        document.getElementById('search-input').focus();
+        const el = document.getElementById('search-input');
+        if (el) el.focus();
     }
 });
 
 // ============ DELETE CONFIRM ============
 function confirmDelete(accountName, pageCount, bmCount) {
-    let warning = `⚠️ Kya aap wakai "${accountName}" account delete karna chahte hain?`;
-    
+    let warning = '⚠️ Kya aap wakai "' + accountName + '" account delete karna chahte hain?';
     if (pageCount > 0 || bmCount > 0) {
-        warning += `\n\n🚫 WARNING: Iss account ke sath linked hain:`;
-        if (pageCount > 0) warning += `\n   • ${pageCount} Pages`;
-        if (bmCount > 0) warning += `\n   • ${bmCount} Business Managers`;
-        warning += `\n\nUnhen pehle delete/reassign karna hoga.`;
+        warning += '\n\n🚫 WARNING: Iss account ke sath linked hain:';
+        if (pageCount > 0) warning += '\n   • ' + pageCount + ' Pages';
+        if (bmCount > 0) warning += '\n   • ' + bmCount + ' Business Managers';
+        warning += '\n\nUnhen pehle delete/reassign karna hoga.';
     }
-    
-    warning += `\n\nYeh action WAAPAS nahi ho sakti!`;
-    
+    warning += '\n\nYeh action WAAPAS nahi ho sakti!';
     return confirm(warning);
 }
 
-// ============ PASSWORD TOGGLE (existing) ============
+// ============ PASSWORD TOGGLE ============
 const pwdCache = {};
 
 async function fetchPwd(id) {
     if (pwdCache[id]) return pwdCache[id];
     try {
-        const res = await fetch(`/api/fb-account/${id}/password`);
+        const res = await fetch('/api/fb-account/' + id + '/password');
         const data = await res.json();
         if (data.success) {
             pwdCache[id] = data.password;
@@ -345,9 +319,7 @@ async function copyPwd(id, btn) {
         const original = btn.innerHTML;
         btn.innerHTML = '✓';
         btn.style.color = '#42b72a';
-        setTimeout(() => {
-            btn.innerHTML = original;
-        }, 1500);
+        setTimeout(() => { btn.innerHTML = original; }, 1500);
     });
 }
 

@@ -128,6 +128,50 @@
     </div>
 </div>
 
+<!-- ============ DELETE ALERTS ============ -->
+{% if recent_deletes %}
+<div class="card" style="border-left: 4px solid #dc2626;">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+        <div>
+            🗑️ Recently Deleted
+            {% if unseen_deletes %}
+            <span style="background:#dc2626;color:#fff;padding:2px 9px;border-radius:12px;font-size:12px;margin-left:6px;">
+                {{ unseen_deletes }} naya
+            </span>
+            {% endif %}
+        </div>
+        <a href="{{ url_for('activity_log', action='delete') }}" class="btn btn-secondary btn-sm">Full Log</a>
+    </div>
+    <div class="table-wrapper">
+        <table>
+            <thead><tr><th>Kab</th><th>Kis ne</th><th>Kya delete kiya</th><th>Details</th></tr></thead>
+            <tbody>
+                {% for d in recent_deletes %}
+                <tr style="{% if not d.seen_by_owner %}background:#fff5f5;{% endif %}">
+                    <td style="font-size:12px;white-space:nowrap;">
+                        {{ d.created_at.strftime('%d %b, %I:%M %p') if d.created_at else '-' }}
+                    </td>
+                    <td>
+                        <span class="text-bold" style="font-size:13px;">{{ d.user_name or 'System' }}</span>
+                        {% if d.user_role and d.user_role != 'owner' %}
+                        <span class="user-badge badge-{{ d.user_role }}" style="font-size:10px;">{{ d.user_role }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        <span style="background:#fecaca;color:#7f1d1d;padding:2px 8px;border-radius:10px;font-size:11px;">
+                            {{ d.entity_type }}
+                        </span>
+                        <span class="text-bold" style="margin-left:6px;font-size:13px;">{{ d.entity_name }}</span>
+                    </td>
+                    <td style="font-size:12px;color:#65676b;">{{ d.details or '-' }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endif %}
+
 <!-- ============ COUNTRY + NICHE DONUTS ============ -->
 <div class="dash-grid dash-2">
     <div class="card">
@@ -449,7 +493,15 @@
             <a href="{{ url_for('add_team_member') }}" class="btn btn-secondary btn-sm">🧑‍💼 Add Member</a>
             <a href="{{ url_for('submit_report') }}" class="btn btn-secondary btn-sm">📝 Submit Report</a>
         </div>
-        <div style="font-size:12px;color:#65676b;margin:16px 0 8px;">📤 Backup — Excel export</div>
+        <div style="font-size:12px;color:#65676b;margin:16px 0 8px;">📦 Complete Backup</div>
+        <a href="{{ url_for('export_master') }}" class="btn btn-primary btn-sm"
+           style="background:#7c3aed;border-color:#7c3aed;">
+            📦 MASTER EXCEL — Sara data ek file mein
+        </a>
+        <div style="font-size:11px;color:#8a8d91;margin-top:6px;">
+            11 sheets: Master (page+ID+BM+partner), FB IDs, BMs, Partner Access, Pages, Groups, Team, Payments, Reports, Activity Log
+        </div>
+        <div style="font-size:12px;color:#65676b;margin:16px 0 8px;">📤 Alag alag export</div>
         <div class="qa">
             <a href="{{ url_for('export_fb_accounts') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">FB IDs</a>
             <a href="{{ url_for('export_pages') }}" class="btn btn-sm" style="background:#f59e0b;color:#fff;">Pages</a>

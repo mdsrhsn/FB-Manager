@@ -1,0 +1,118 @@
+{% extends 'base.html' %}
+{% block page_title %}Activity Log{% endblock %}
+
+{% block content %}
+<div class="stats-grid">
+    <div class="stat-card">
+        <div class="stat-label">Total Activity</div>
+        <div class="stat-value">{{ counts.total }}</div>
+        <div class="stat-sub">Sab records</div>
+    </div>
+    <div class="stat-card danger">
+        <div class="stat-label">🗑️ Deletes</div>
+        <div class="stat-value">{{ counts.delete }}</div>
+        <div class="stat-sub">Kitni cheezen delete hui</div>
+    </div>
+    <div class="stat-card success">
+        <div class="stat-label">➕ Creates</div>
+        <div class="stat-value">{{ counts.create }}</div>
+        <div class="stat-sub">Naya add hua</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">✏️ Updates</div>
+        <div class="stat-value">{{ counts.update }}</div>
+        <div class="stat-sub">Edit hua</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-title" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:10px;">
+        <div>📋 Activity Log — kis ne kya kiya</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+            <a href="{{ url_for('activity_log') }}"
+               class="btn btn-sm {% if not action_filter %}btn-primary{% else %}btn-secondary{% endif %}">All</a>
+            <a href="{{ url_for('activity_log', action='delete') }}"
+               class="btn btn-sm {% if action_filter == 'delete' %}btn-primary{% else %}btn-secondary{% endif %}">🗑️ Deletes</a>
+            <a href="{{ url_for('activity_log', action='create') }}"
+               class="btn btn-sm {% if action_filter == 'create' %}btn-primary{% else %}btn-secondary{% endif %}">➕ Creates</a>
+            <a href="{{ url_for('activity_log', action='update') }}"
+               class="btn btn-sm {% if action_filter == 'update' %}btn-primary{% else %}btn-secondary{% endif %}">✏️ Updates</a>
+        </div>
+    </div>
+
+    <div style="padding: 10px 14px; background:#f7f8fa;border-radius:6px;margin-bottom:12px;">
+        <input type="text" id="log-search" placeholder="🔍 Search — user, type, name, details..."
+               style="width:100%;padding:8px 12px;border:1px solid #ddd;border-radius:6px;font-size:14px;"
+               oninput="filterLogs()">
+        <span id="log-count" style="font-size:12px;color:#65676b;"></span>
+    </div>
+
+    <div class="table-wrapper">
+        <table>
+            <thead>
+                <tr>
+                    <th>Date &amp; Time</th>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Type</th>
+                    <th>Name</th>
+                    <th>Details</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for l in logs %}
+                <tr class="log-row"
+                    data-txt="{{ ((l.user_name or '') ~ ' ' ~ (l.entity_type or '') ~ ' ' ~ (l.entity_name or '') ~ ' ' ~ (l.details or ''))|lower }}"
+                    style="{% if l.action == 'delete' %}background:#fff5f5;{% endif %}">
+                    <td style="font-size:12.5px;white-space:nowrap;">
+                        {{ l.created_at.strftime('%d %b %Y') if l.created_at else '-' }}
+                        <div style="color:#8a8d91;font-size:11px;">
+                            {{ l.created_at.strftime('%I:%M %p') if l.created_at else '' }}
+                        </div>
+                    </td>
+                    <td>
+                        <div class="text-bold" style="font-size:13px;">{{ l.user_name or 'System' }}</div>
+                        {% if l.user_role %}
+                        <span class="user-badge badge-{{ l.user_role }}" style="font-size:10px;">{{ l.user_role }}</span>
+                        {% endif %}
+                    </td>
+                    <td>
+                        {% if l.action == 'delete' %}
+                            <span style="background:#fecaca;color:#7f1d1d;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:700;">🗑️ DELETE</span>
+                        {% elif l.action == 'create' %}
+                            <span style="background:#d1fae5;color:#047857;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:600;">➕ CREATE</span>
+                        {% else %}
+                            <span style="background:#e0f2fe;color:#0369a1;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:600;">✏️ UPDATE</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size:12.5px;color:#65676b;">{{ l.entity_type or '-' }}</td>
+                    <td class="text-bold" style="font-size:13px;">{{ l.entity_name or '-' }}</td>
+                    <td style="font-size:12px;color:#65676b;">{{ l.details or '-' }}</td>
+                </tr>
+                {% else %}
+                <tr><td colspan="6" class="text-center text-muted">Abhi koi activity record nahi hui</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div style="font-size:12px;color:#8a8d91;margin-top:10px;">
+        Sirf aakhri 300 records dikhaye ja rahe hain. Pura record Master Excel export ki
+        "Activity Log" sheet mein milta hai.
+    </div>
+</div>
+
+<script>
+function filterLogs() {
+    var q = document.getElementById('log-search').value.toLowerCase().trim();
+    var rows = document.querySelectorAll('.log-row');
+    var n = 0;
+    rows.forEach(function (r) {
+        var show = !q || (r.dataset.txt || '').includes(q);
+        r.style.display = show ? '' : 'none';
+        if (show) n++;
+    });
+    document.getElementById('log-count').textContent = q ? (n + ' / ' + rows.length + ' records') : '';
+}
+</script>
+{% endblock %}

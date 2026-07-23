@@ -27,7 +27,26 @@ class User(db.Model, UserMixin):
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # ============ PERMISSIONS (owner control karta hai) ============
+    # Owner ke paas hamesha sab access hota hai. Yeh flags supervisors par lagte hain.
+    can_view_fb_accounts = db.Column(db.Boolean, default=True)
+    can_view_passwords = db.Column(db.Boolean, default=False)   # FB passwords dekh sakta hai
+    can_view_bms = db.Column(db.Boolean, default=True)
+    can_view_groups = db.Column(db.Boolean, default=True)
+    can_view_team = db.Column(db.Boolean, default=True)
+    can_add_edit = db.Column(db.Boolean, default=True)          # naya add / edit kar sakta hai
+    can_delete = db.Column(db.Boolean, default=False)           # delete kar sakta hai
+    can_export = db.Column(db.Boolean, default=False)           # Excel download kar sakta hai
+
     workers = db.relationship('User', backref=db.backref('supervisor', remote_side=[id]))
+
+    def has_perm(self, perm):
+        """Permission check — owner ke paas hamesha sab kuch hai"""
+        if self.role == 'owner':
+            return True
+        if self.role == 'worker':
+            return False
+        return bool(getattr(self, 'can_' + perm, False))
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -228,6 +247,25 @@ class Group(db.Model):
     )
 
 
+class ActivityLog(db.Model):
+    """
+    Kis ne kya kiya — khaas kar DELETE ka record.
+    Owner ko dashboard par nazar aata hai.
+    """
+    __tablename__ = 'activity_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    user_name = db.Column(db.String(120))      # snapshot — user delete ho jaye to bhi naam rahe
+    user_role = db.Column(db.String(20))
+    action = db.Column(db.String(20))          # create / update / delete
+    entity_type = db.Column(db.String(40))     # FB Account / Page / BM / Group / Partner Access
+    entity_name = db.Column(db.String(180))
+    details = db.Column(db.Text)
+    seen_by_owner = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
 class DailyReport(db.Model):
     """Daily report har page ke liye"""
     __tablename__ = 'daily_reports'
@@ -358,6 +396,7 @@ def init_db(app):
         # PostgreSQL (Railway) aur SQLite (local) ka syntax alag hai
         is_postgres = db.engine.dialect.name == 'postgresql'
         BOOL_TRUE = 'BOOLEAN DEFAULT TRUE' if is_postgres else 'BOOLEAN DEFAULT 1'
+        BOOL_FALSE = 'BOOLEAN DEFAULT FALSE' if is_postgres else 'BOOLEAN DEFAULT 0'
 
         # ---- fb_accounts new columns ----
         if 'fb_accounts' in inspector.get_table_names():
@@ -385,6 +424,24 @@ def init_db(app):
 
             for col_name, col_type in migrations:
                 all_migrations.append(('fb_accounts', col_name, col_type))
+
+        # ---- users permission columns ----
+        if 'users' in inspector.get_table_names():
+            existing_cols = [col['name'] for col in inspector.get_columns('users')]
+            perm_defaults = [
+                ('can_view_fb_accounts', True),
+                ('can_view_passwords', False),
+                ('can_view_bms', True),
+                ('can_view_groups', True),
+                ('can_view_team', True),
+                ('can_add_edit', True),
+                ('can_delete', False),
+                ('can_export', False),
+            ]
+            for col_name, default_true in perm_defaults:
+                if col_name not in existing_cols:
+                    col_type = BOOL_TRUE if default_true else BOOL_FALSE
+                    all_migrations.append(('users', col_name, col_type))
 
         # ---- business_managers new columns ----
         if 'business_managers' in inspector.get_table_names():

@@ -5,16 +5,20 @@
 <div class="card">
     <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
         <div>👥 Team Members ({{ members|length }})</div>
-        {% if current_user.is_owner() %}
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            {% if current_user.is_owner() %}
             <a href="{{ url_for('add_team_member') }}" class="btn btn-primary btn-sm">➕ Add Member</a>
-            <button type="button" onclick="document.getElementById('importModal').style.display='flex'" 
+            {% endif %}
+            {% if can('add_edit') %}
+            <button type="button" onclick="document.getElementById('importModal').style.display='flex'"
                     class="btn btn-sm" style="background: #42b72a; color: white;">📥 Import Excel</button>
-            <a href="{{ url_for('export_team') }}" 
+            {% endif %}
+            {% if can('export') %}
+            <a href="{{ url_for('export_team') }}"
                class="btn btn-sm" style="background: #f59e0b; color: white;">📤 Export Excel</a>
             <a href="{{ url_for('team_template') }}" class="btn btn-sm btn-secondary">📄 Template</a>
+            {% endif %}
         </div>
-        {% endif %}
     </div>
     <div class="table-wrapper">
         <table>
@@ -25,7 +29,9 @@
                     <th>Role</th>
                     <th>Supervisor</th>
                     <th>Phone</th>
+                    <th>🛡️ Permissions</th>
                     <th>Status</th>
+                    {% if current_user.is_owner() %}<th>Action</th>{% endif %}
                 </tr>
             </thead>
             <tbody>
@@ -36,19 +42,58 @@
                     <td><span class="user-badge badge-{{ m.role }}">{{ m.role }}</span></td>
                     <td>{{ m.supervisor.full_name if m.supervisor else '-' }}</td>
                     <td>{{ m.phone or '-' }}</td>
+                    <td>
+                        {% if m.role == 'worker' %}
+                            <span class="text-muted" style="font-size:11.5px;">Worker — sirf apne pages</span>
+                        {% else %}
+                        <div style="display:flex;gap:3px;flex-wrap:wrap;">
+                            {% set perms = [
+                                ('can_view_fb_accounts','🔑','FB IDs'),
+                                ('can_view_passwords','👁️','Passwords'),
+                                ('can_view_bms','🏢','BMs'),
+                                ('can_view_groups','👥','Groups'),
+                                ('can_add_edit','➕','Add/Edit'),
+                                ('can_delete','🗑️','Delete'),
+                                ('can_export','📤','Export')
+                            ] %}
+                            {% for field, ico, label in perms %}
+                                <span title="{{ label }}: {{ 'Allowed' if m[field] else 'Blocked' }}"
+                                      style="font-size:11px;padding:2px 6px;border-radius:10px;
+                                             background:{% if m[field] %}#d1fae5{% else %}#f3f4f6{% endif %};
+                                             color:{% if m[field] %}#047857{% else %}#9ca3af{% endif %};">
+                                    {{ ico }}{% if not m[field] %}✕{% endif %}
+                                </span>
+                            {% endfor %}
+                        </div>
+                        {% endif %}
+                    </td>
                     <td><span class="status-badge status-{% if m.is_active %}active{% else %}suspended{% endif %}">
                         {% if m.is_active %}Active{% else %}Inactive{% endif %}
                     </span></td>
+                    {% if current_user.is_owner() %}
+                    <td>
+                        <div style="display:flex;gap:4px;">
+                            <a href="{{ url_for('edit_team_member', member_id=m.id) }}"
+                               class="btn btn-secondary btn-sm">Edit / Permissions</a>
+                            <form method="POST" action="{{ url_for('delete_team_member', member_id=m.id) }}"
+                                  style="display:inline;margin:0;"
+                                  onsubmit="return confirm('⚠️ {{ m.full_name|e }} ko delete karen?\n\nAgar iske reports ya pages linked hain to sirf INACTIVE hoga.');">
+                                <button type="submit" class="btn btn-sm"
+                                        style="background:#dc2626;color:white;padding:4px 10px;font-size:12px;">🗑️</button>
+                            </form>
+                        </div>
+                    </td>
+                    {% endif %}
                 </tr>
                 {% else %}
-                <tr><td colspan="6" class="text-center text-muted">Koi team member nahi</td></tr>
+                <tr><td colspan="8" class="text-center text-muted">Koi team member nahi</td></tr>
                 {% endfor %}
             </tbody>
         </table>
     </div>
 </div>
 
-{% if current_user.is_owner() %}
+{% if can('add_edit') %}
 <div id="importModal" 
      style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; 
             background:rgba(0,0,0,0.5); z-index:1000; justify-content:center; align-items:center;">

@@ -17,7 +17,7 @@ from sqlalchemy import func, extract
 
 from models import (
     db, User, FBAccount, BusinessManager, BMPartnerAccess,
-    Page, Group, DailyReport, TeamPayment, init_db
+    Page, Group, DailyReport, TeamPayment, ActivityLog, init_db
 )
 
 # ==================== APP CONFIG ====================
@@ -84,6 +84,55 @@ def owner_or_supervisor(f):
             return redirect(url_for('dashboard'))
         return f(*args, **kwargs)
     return decorated_function
+
+
+def permission_required(perm):
+    """
+    Permission-based access. Owner ke paas hamesha sab kuch hai.
+    Supervisor ka access owner ke diye hue flags par depend karta hai.
+    """
+    def decorator(f):
+        @wraps(f)
+        def decorated_function(*args, **kwargs):
+            if not current_user.is_authenticated:
+                return redirect(url_for('login'))
+            if current_user.has_perm(perm):
+                return f(*args, **kwargs)
+            flash('Iss kaam ki ijazat aap ke paas nahi hai. Owner se rabta karen.', 'error')
+            return redirect(url_for('dashboard'))
+        return decorated_function
+    return decorator
+
+
+# ==================== ACTIVITY LOG HELPER ====================
+def log_activity(action, entity_type, entity_name, details=None):
+    """Har create / update / delete ka record — khaas kar delete owner ko dikhane ke liye"""
+    try:
+        entry = ActivityLog(
+            user_id=current_user.id if current_user.is_authenticated else None,
+            user_name=current_user.full_name if current_user.is_authenticated else 'System',
+            user_role=current_user.role if current_user.is_authenticated else '-',
+            action=action,
+            entity_type=entity_type,
+            entity_name=(entity_name or '')[:180],
+            details=details,
+            # Owner apna kaam khud dekh chuka hai — sirf doosron ka unseen rahega
+            seen_by_owner=bool(current_user.is_authenticated and current_user.is_owner())
+        )
+        db.session.add(entry)
+        db.session.commit()
+    except Exception:
+        db.session.rollback()
+
+
+# Templates mein permission check ke liye: {% if can('export') %}
+@app.context_processor
+def inject_permission_helper():
+    def can(perm):
+        if not current_user.is_authenticated:
+            return False
+        return current_user.has_perm(perm)
+    return dict(can=can)
 
 
 # ==================== AUTH ROUTES ====================
@@ -364,6 +413,12 @@ def dashboard():
         else:
             health_label, health_color = 'Needs Attention', '#dc2626'
 
+        # ---------- DELETE ALERTS (owner ko pata chale) ----------
+        recent_deletes = ActivityLog.query.filter_by(action='delete').order_by(
+            ActivityLog.created_at.desc()).limit(6).all()
+        unseen_deletes = ActivityLog.query.filter_by(action='delete', seen_by_owner=False).count()
+        unseen_total = ActivityLog.query.filter_by(seen_by_owner=False).count()
+
         # ---------- RECENT ACTIVITY ----------
         recent_accounts = FBAccount.query.order_by(FBAccount.created_at.desc()).limit(4).all()
         recent_pages = Page.query.order_by(Page.created_at.desc()).limit(4).all()
@@ -448,14 +503,17 @@ def dashboard():
             recent_accounts=recent_accounts,
             recent_pages=recent_pages,
             recent_groups=recent_groups,
-            attention=attention
+            attention=attention,
+            recent_deletes=recent_deletes,
+            unseen_deletes=unseen_deletes,
+            unseen_total=unseen_total
         )
 
 
 # ==================== FB ACCOUNTS ====================
 @app.route('/fb-accounts')
 @login_required
-@owner_or_supervisor
+@permission_required('view_fb_accounts')
 def fb_accounts():
     accounts = FBAccount.query.order_by(FBAccount.created_at.desc()).all()
     return render_template('fb_accounts.html', accounts=accounts)
@@ -463,7 +521,7 @@ def fb_accounts():
 
 @app.route('/fb-accounts/add', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def add_fb_account():
     if request.method == 'POST':
         account = FBAccount(
@@ -489,6 +547,7 @@ def add_fb_account():
 
         db.session.add(account)
         db.session.commit()
+        log_activity('create', 'FB Account', account.account_name)
         flash('FB Account add ho gaya (password encrypted hai)', 'success')
         return redirect(url_for('fb_accounts'))
 
@@ -497,7 +556,7 @@ def add_fb_account():
 
 @app.route('/fb-accounts/<int:account_id>/edit', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def edit_fb_account(account_id):
     account = FBAccount.query.get_or_404(account_id)
     if request.method == 'POST':
@@ -529,6 +588,7 @@ def edit_fb_account(account_id):
         account.date_of_birth = _parse_date(request.form.get('date_of_birth'))
 
         db.session.commit()
+        log_activity('update', 'FB Account', account.account_name)
         flash('FB Account update ho gaya', 'success')
         return redirect(url_for('fb_accounts'))
 
@@ -537,7 +597,7 @@ def edit_fb_account(account_id):
 
 @app.route('/fb-accounts/<int:account_id>/delete', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('delete')
 def delete_fb_account(account_id):
     """Delete an FB account (only if no pages/BMs linked)"""
     account = FBAccount.query.get_or_404(account_id)
@@ -556,6 +616,8 @@ def delete_fb_account(account_id):
     account_name = account.account_name
     db.session.delete(account)
     db.session.commit()
+    log_activity('delete', 'FB Account', account_name,
+                 f'Email: {account.email or "-"} | Location: {account.location or "-"}')
     flash(f'FB Account "{account_name}" delete ho gaya', 'success')
     return redirect(url_for('fb_accounts'))
 
@@ -563,7 +625,7 @@ def delete_fb_account(account_id):
 # ==================== FB ACCOUNTS - EXCEL IMPORT/EXPORT ====================
 @app.route('/fb-accounts/export')
 @login_required
-@owner_required
+@permission_required('export')
 def export_fb_accounts():
     """Saare FB accounts ko Excel file mein export karen"""
     from openpyxl import Workbook
@@ -632,7 +694,7 @@ def export_fb_accounts():
 
 @app.route('/fb-accounts/import', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def import_fb_accounts():
     """Excel file se FB accounts ko bulk import karen"""
     from openpyxl import load_workbook
@@ -751,7 +813,7 @@ def import_fb_accounts():
 
 @app.route('/fb-accounts/template')
 @login_required
-@owner_required
+@permission_required('export')
 def fb_accounts_template():
     """Sample Excel template download karen for import"""
     from openpyxl import Workbook
@@ -821,7 +883,7 @@ def fb_accounts_template():
 # ==================== API: Get decrypted password (owner only) ====================
 @app.route('/api/fb-account/<int:account_id>/password')
 @login_required
-@owner_required
+@permission_required('view_passwords')
 def api_get_fb_password(account_id):
     """AJAX endpoint - returns decrypted password for display"""
     account = FBAccount.query.get_or_404(account_id)
@@ -865,7 +927,7 @@ def _style_header(ws, headers, color='1877F2'):
 # ==================== PAGES - EXCEL IMPORT/EXPORT ====================
 @app.route('/pages/export')
 @login_required
-@owner_required
+@permission_required('export')
 def export_pages():
     """Saare pages Excel mein export karen"""
     from openpyxl import Workbook
@@ -914,7 +976,7 @@ def export_pages():
 
 @app.route('/pages/template')
 @login_required
-@owner_required
+@permission_required('export')
 def pages_template():
     """Pages import ke liye sample Excel template"""
     from openpyxl import Workbook
@@ -970,7 +1032,7 @@ def pages_template():
 
 @app.route('/pages/import', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def import_pages():
     """Excel se pages bulk import karen"""
     from openpyxl import load_workbook
@@ -1090,7 +1152,7 @@ def import_pages():
 # ==================== BUSINESS MANAGERS ====================
 @app.route('/business-managers')
 @login_required
-@owner_required
+@permission_required('view_bms')
 def business_managers():
     """BM list page"""
     bms = BusinessManager.query.order_by(BusinessManager.created_at.desc()).all()
@@ -1099,7 +1161,7 @@ def business_managers():
 
 @app.route('/business-managers/add', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def add_business_manager():
     if request.method == 'POST':
         invited_id = request.form.get('invited_to_fb_account_id')
@@ -1116,6 +1178,7 @@ def add_business_manager():
         )
         db.session.add(bm)
         db.session.commit()
+        log_activity('create', 'Business Manager', bm.bm_name)
         flash('Business Manager add ho gaya. Ab Partner Access add kar sakte hain (Edit button se).', 'success')
         return redirect(url_for('edit_business_manager', bm_id=bm.id))
 
@@ -1125,7 +1188,7 @@ def add_business_manager():
 
 @app.route('/business-managers/<int:bm_id>/edit', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def edit_business_manager(bm_id):
     bm = BusinessManager.query.get_or_404(bm_id)
     if request.method == 'POST':
@@ -1142,6 +1205,7 @@ def edit_business_manager(bm_id):
         bm.invite_notes = request.form.get('invite_notes') or None
 
         db.session.commit()
+        log_activity('update', 'Business Manager', bm.bm_name)
         flash('Business Manager update ho gaya', 'success')
         return redirect(url_for('business_managers'))
 
@@ -1154,7 +1218,7 @@ def edit_business_manager(bm_id):
 
 @app.route('/business-managers/<int:bm_id>/delete', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('delete')
 def delete_business_manager(bm_id):
     """Delete a BM (only if no pages linked)"""
     bm = BusinessManager.query.get_or_404(bm_id)
@@ -1169,8 +1233,11 @@ def delete_business_manager(bm_id):
         return redirect(url_for('business_managers'))
 
     bm_name = bm.bm_name
+    partner_n = len(bm.partner_accesses)
     db.session.delete(bm)  # partner_accesses cascade delete ho jayen ge
     db.session.commit()
+    log_activity('delete', 'Business Manager', bm_name,
+                 f'{partner_n} partner access records bhi delete hue')
     flash(f'Business Manager "{bm_name}" delete ho gaya', 'success')
     return redirect(url_for('business_managers'))
 
@@ -1178,7 +1245,7 @@ def delete_business_manager(bm_id):
 # ==================== BM PARTNER ACCESS (V2 NEW) ====================
 @app.route('/business-managers/<int:bm_id>/partners/add', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def add_bm_partner(bm_id):
     """Kisi BM ko doosri BM ka partner access diya - record karen"""
     bm = BusinessManager.query.get_or_404(bm_id)
@@ -1199,13 +1266,14 @@ def add_bm_partner(bm_id):
     )
     db.session.add(partner)
     db.session.commit()
+    log_activity('create', 'Partner Access', partner_name, f'Source BM: {bm.bm_name}')
     flash(f'Partner access record add ho gaya: {partner_name}', 'success')
     return redirect(url_for('edit_business_manager', bm_id=bm.id))
 
 
 @app.route('/business-managers/<int:bm_id>/partners/<int:partner_id>/delete', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('delete')
 def delete_bm_partner(bm_id, partner_id):
     """Partner access record delete karen"""
     partner = BMPartnerAccess.query.get_or_404(partner_id)
@@ -1214,8 +1282,10 @@ def delete_bm_partner(bm_id, partner_id):
         return redirect(url_for('business_managers'))
 
     partner_name = partner.partner_bm_name
+    source_name = partner.source_bm.bm_name if partner.source_bm else '-'
     db.session.delete(partner)
     db.session.commit()
+    log_activity('delete', 'Partner Access', partner_name, f'Source BM: {source_name}')
     flash(f'Partner access "{partner_name}" delete ho gaya', 'success')
     return redirect(url_for('edit_business_manager', bm_id=bm_id))
 
@@ -1223,7 +1293,7 @@ def delete_bm_partner(bm_id, partner_id):
 # ==================== BUSINESS MANAGERS - EXCEL ====================
 @app.route('/business-managers/export')
 @login_required
-@owner_required
+@permission_required('export')
 def export_business_managers():
     from openpyxl import Workbook
     wb = Workbook()
@@ -1260,7 +1330,7 @@ def export_business_managers():
 
 @app.route('/business-managers/partners/export')
 @login_required
-@owner_required
+@permission_required('export')
 def export_bm_partners():
     """Saare partner access records export karen"""
     from openpyxl import Workbook
@@ -1296,7 +1366,7 @@ def export_bm_partners():
 
 @app.route('/business-managers/template')
 @login_required
-@owner_required
+@permission_required('export')
 def bm_template():
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -1315,7 +1385,7 @@ def bm_template():
 
 @app.route('/business-managers/import', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def import_business_managers():
     from openpyxl import load_workbook
     if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
@@ -1370,7 +1440,7 @@ def import_business_managers():
 # ==================== TEAM - EXCEL ====================
 @app.route('/team/export')
 @login_required
-@owner_required
+@permission_required('export')
 def export_team():
     from openpyxl import Workbook
     wb = Workbook()
@@ -1400,7 +1470,7 @@ def export_team():
 
 @app.route('/team/template')
 @login_required
-@owner_required
+@permission_required('export')
 def team_template():
     from openpyxl import Workbook
     from openpyxl.styles import Font
@@ -1432,7 +1502,7 @@ def team_template():
 
 @app.route('/team/import', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def import_team():
     from openpyxl import load_workbook
     if 'excel_file' not in request.files or request.files['excel_file'].filename == '':
@@ -1517,7 +1587,7 @@ def pages():
 
 @app.route('/pages/add', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def add_page():
     if request.method == 'POST':
         is_fresh = request.form.get('is_fresh_start') == 'yes'
@@ -1544,6 +1614,7 @@ def add_page():
         )
         db.session.add(page)
         db.session.commit()
+        log_activity('create', 'Page', page.page_name)
         flash('Page add ho gaya', 'success')
         return redirect(url_for('pages'))
 
@@ -1555,7 +1626,7 @@ def add_page():
 
 @app.route('/pages/<int:page_id>/edit', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def edit_page(page_id):
     page = Page.query.get_or_404(page_id)
     if request.method == 'POST':
@@ -1582,6 +1653,7 @@ def edit_page(page_id):
         page.page_status_notes = request.form.get('page_status_notes') or None
 
         db.session.commit()
+        log_activity('update', 'Page', page.page_name)
         flash('Page update ho gaya', 'success')
         return redirect(url_for('pages'))
 
@@ -1593,7 +1665,7 @@ def edit_page(page_id):
 
 @app.route('/pages/<int:page_id>/delete', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('delete')
 def delete_page(page_id):
     """Delete a page (reports bhi delete ho jayen ge)"""
     page = Page.query.get_or_404(page_id)
@@ -1607,6 +1679,8 @@ def delete_page(page_id):
 
     db.session.delete(page)
     db.session.commit()
+    log_activity('delete', 'Page', page_name,
+                 f'{report_count} reports bhi delete hue')
 
     msg = f'Page "{page_name}" delete ho gaya'
     if report_count > 0:
@@ -1618,7 +1692,7 @@ def delete_page(page_id):
 # ==================== GROUPS (V2 NEW - Feature 7) ====================
 @app.route('/groups')
 @login_required
-@owner_or_supervisor
+@permission_required('view_groups')
 def groups():
     """Saare groups ki list"""
     groups_list = Group.query.order_by(Group.created_at.desc()).all()
@@ -1627,7 +1701,7 @@ def groups():
 
 @app.route('/groups/add', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def add_group():
     if request.method == 'POST':
         page_id = request.form.get('page_id')
@@ -1645,6 +1719,7 @@ def add_group():
         )
         db.session.add(group)
         db.session.commit()
+        log_activity('create', 'Group', group.group_name)
         flash('Group add ho gaya', 'success')
         return redirect(url_for('groups'))
 
@@ -1655,7 +1730,7 @@ def add_group():
 
 @app.route('/groups/<int:group_id>/edit', methods=['GET', 'POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def edit_group(group_id):
     group = Group.query.get_or_404(group_id)
     if request.method == 'POST':
@@ -1672,6 +1747,7 @@ def edit_group(group_id):
         group.notes = request.form.get('notes') or None
 
         db.session.commit()
+        log_activity('update', 'Group', group.group_name)
         flash('Group update ho gaya', 'success')
         return redirect(url_for('groups'))
 
@@ -1682,19 +1758,21 @@ def edit_group(group_id):
 
 @app.route('/groups/<int:group_id>/delete', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('delete')
 def delete_group(group_id):
     group = Group.query.get_or_404(group_id)
     group_name = group.group_name
+    members = group.members_count or 0
     db.session.delete(group)
     db.session.commit()
+    log_activity('delete', 'Group', group_name, f'{members:,} members')
     flash(f'Group "{group_name}" delete ho gaya', 'success')
     return redirect(url_for('groups'))
 
 
 @app.route('/groups/export')
 @login_required
-@owner_required
+@permission_required('export')
 def export_groups():
     """Saare groups Excel mein export karen"""
     from openpyxl import Workbook
@@ -1728,7 +1806,7 @@ def export_groups():
 
 @app.route('/groups/template')
 @login_required
-@owner_required
+@permission_required('export')
 def groups_template():
     """Groups import ke liye sample template"""
     from openpyxl import Workbook
@@ -1769,7 +1847,7 @@ def groups_template():
 
 @app.route('/groups/import', methods=['POST'])
 @login_required
-@owner_required
+@permission_required('add_edit')
 def import_groups():
     """Excel se groups bulk import"""
     from openpyxl import load_workbook
@@ -1914,7 +1992,7 @@ def reports_list():
 # ==================== TEAM MANAGEMENT ====================
 @app.route('/team')
 @login_required
-@owner_or_supervisor
+@permission_required('view_team')
 def team():
     if current_user.is_owner():
         members = User.query.filter(User.role != 'owner').order_by(User.role, User.full_name).all()
@@ -2009,6 +2087,424 @@ def mark_paid(pid):
     db.session.commit()
     flash('Payment paid mark ho gaya', 'success')
     return redirect(url_for('payments'))
+
+
+
+# ==================== ACCOUNT SETTINGS — PASSWORD CHANGE ====================
+@app.route('/settings/password', methods=['GET', 'POST'])
+@login_required
+def change_password():
+    """Har user apna password khud change kar sakta hai (hashed store hota hai)"""
+    if request.method == 'POST':
+        current_pw = request.form.get('current_password') or ''
+        new_pw = request.form.get('new_password') or ''
+        confirm_pw = request.form.get('confirm_password') or ''
+
+        if not current_user.check_password(current_pw):
+            flash('Purana password galat hai', 'error')
+            return redirect(url_for('change_password'))
+
+        if len(new_pw) < 6:
+            flash('Naya password kam az kam 6 characters ka hona chahiye', 'error')
+            return redirect(url_for('change_password'))
+
+        if new_pw != confirm_pw:
+            flash('Naya password aur confirm password match nahi kar rahe', 'error')
+            return redirect(url_for('change_password'))
+
+        if new_pw == current_pw:
+            flash('Naya password purane se alag hona chahiye', 'error')
+            return redirect(url_for('change_password'))
+
+        current_user.set_password(new_pw)
+        db.session.commit()
+        log_activity('update', 'Password', current_user.full_name, 'Apna password change kiya')
+        flash('Password change ho gaya. Agli baar naya password use karen.', 'success')
+        return redirect(url_for('dashboard'))
+
+    return render_template('change_password.html')
+
+
+# ==================== TEAM — EDIT + PERMISSIONS + RESET PASSWORD ====================
+PERMISSION_FIELDS = [
+    ('can_view_fb_accounts', '🔑 FB Accounts dekh sakta hai'),
+    ('can_view_passwords', '👁️ FB passwords dekh sakta hai (sensitive)'),
+    ('can_view_bms', '🏢 Business Managers dekh sakta hai'),
+    ('can_view_groups', '👥 Groups dekh sakta hai'),
+    ('can_view_team', '🧑‍💼 Team list dekh sakta hai'),
+    ('can_add_edit', '➕ Naya add / edit kar sakta hai (import bhi)'),
+    ('can_delete', '🗑️ Delete kar sakta hai'),
+    ('can_export', '📤 Excel download / export kar sakta hai'),
+]
+
+
+@app.route('/team/<int:member_id>/edit', methods=['GET', 'POST'])
+@login_required
+@owner_required
+def edit_team_member(member_id):
+    """Owner team member ki details aur permissions set karta hai"""
+    member = User.query.get_or_404(member_id)
+    if member.role == 'owner':
+        flash('Owner account yahan se edit nahi hota', 'error')
+        return redirect(url_for('team'))
+
+    if request.method == 'POST':
+        member.full_name = request.form.get('full_name')
+        member.phone = request.form.get('phone')
+        member.role = request.form.get('role', member.role)
+        sup_id = request.form.get('supervisor_id')
+        member.supervisor_id = int(sup_id) if sup_id else None
+        member.is_active = request.form.get('is_active') == 'yes'
+
+        # Permissions — checkbox tick hai to True
+        for field, _label in PERMISSION_FIELDS:
+            setattr(member, field, request.form.get(field) == 'yes')
+
+        db.session.commit()
+        log_activity('update', 'Team Member', member.full_name, 'Permissions / details update')
+        flash(f'{member.full_name} ki details aur permissions update ho gayin', 'success')
+        return redirect(url_for('team'))
+
+    supervisors = User.query.filter_by(role='supervisor', is_active=True).all()
+    return render_template('team_edit.html', member=member, supervisors=supervisors,
+                           permission_fields=PERMISSION_FIELDS)
+
+
+@app.route('/team/<int:member_id>/reset-password', methods=['POST'])
+@login_required
+@owner_required
+def reset_member_password(member_id):
+    """Owner kisi member ka password reset kar sakta hai"""
+    member = User.query.get_or_404(member_id)
+    if member.role == 'owner':
+        flash('Owner ka password sirf Settings se change hota hai', 'error')
+        return redirect(url_for('team'))
+
+    new_pw = request.form.get('new_password') or ''
+    if len(new_pw) < 6:
+        flash('Password kam az kam 6 characters ka hona chahiye', 'error')
+        return redirect(url_for('team'))
+
+    member.set_password(new_pw)
+    db.session.commit()
+    log_activity('update', 'Team Member', member.full_name, 'Password reset kiya gaya')
+    flash(f'{member.full_name} ka password reset ho gaya', 'success')
+    return redirect(url_for('team'))
+
+
+@app.route('/team/<int:member_id>/delete', methods=['POST'])
+@login_required
+@owner_required
+def delete_team_member(member_id):
+    """Team member delete — agar uske reports hon to sirf inactive karen"""
+    member = User.query.get_or_404(member_id)
+    if member.role == 'owner':
+        flash('Owner account delete nahi ho sakta', 'error')
+        return redirect(url_for('team'))
+
+    report_count = DailyReport.query.filter_by(worker_id=member.id).count()
+    page_count = Page.query.filter_by(assigned_worker_id=member.id).count()
+
+    if report_count > 0 or page_count > 0:
+        member.is_active = False
+        db.session.commit()
+        log_activity('update', 'Team Member', member.full_name,
+                     f'Inactive kiya gaya ({report_count} reports, {page_count} pages linked)')
+        flash(f'{member.full_name} ke {report_count} reports aur {page_count} pages linked hain — '
+              f'delete ke bajaye INACTIVE kar diya gaya', 'warning')
+        return redirect(url_for('team'))
+
+    name = member.full_name
+    db.session.delete(member)
+    db.session.commit()
+    log_activity('delete', 'Team Member', name)
+    flash(f'{name} delete ho gaya', 'success')
+    return redirect(url_for('team'))
+
+
+# ==================== ACTIVITY LOG (OWNER ONLY) ====================
+@app.route('/activity-log')
+@login_required
+@owner_required
+def activity_log():
+    """Kis ne kya kiya — sab record, khaas kar delete"""
+    action_filter = request.args.get('action', '')
+    query = ActivityLog.query
+    if action_filter in ('create', 'update', 'delete'):
+        query = query.filter_by(action=action_filter)
+
+    logs = query.order_by(ActivityLog.created_at.desc()).limit(300).all()
+
+    # Owner ne dekh liya — unseen mark hata dein
+    unseen = ActivityLog.query.filter_by(seen_by_owner=False).all()
+    for entry in unseen:
+        entry.seen_by_owner = True
+    if unseen:
+        db.session.commit()
+
+    counts = {
+        'total': ActivityLog.query.count(),
+        'delete': ActivityLog.query.filter_by(action='delete').count(),
+        'create': ActivityLog.query.filter_by(action='create').count(),
+        'update': ActivityLog.query.filter_by(action='update').count(),
+    }
+    return render_template('activity_log.html', logs=logs, counts=counts,
+                           action_filter=action_filter)
+
+
+# ==================== MASTER EXCEL EXPORT (OWNER ONLY) ====================
+@app.route('/export/master')
+@login_required
+@owner_required
+def export_master():
+    """
+    Ek hi Excel file mein SARA data — 9 sheets.
+    Master sheet mein har page ke sath uski FB ID, BM, partner access,
+    worker aur groups sab ek row mein.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+
+    wb = Workbook()
+
+    def add_sheet(title, headers, rows, widths, color='1877F2'):
+        ws = wb.create_sheet(title=title)
+        ws.append(headers)
+        header_font = Font(bold=True, color='FFFFFF', size=11)
+        header_fill = PatternFill(start_color=color, end_color=color, fill_type='solid')
+        for c in range(1, len(headers) + 1):
+            cell = ws.cell(row=1, column=c)
+            cell.font = header_font
+            cell.fill = header_fill
+            cell.alignment = Alignment(horizontal='center', vertical='center', wrap_text=True)
+        for r in rows:
+            ws.append(r)
+        for i, w in enumerate(widths, 1):
+            if i <= 26:
+                ws.column_dimensions[chr(64 + i)].width = w
+        ws.freeze_panes = 'A2'
+        ws.auto_filter.ref = ws.dimensions
+        return ws
+
+    # ---------- SHEET 1: SUMMARY ----------
+    all_accounts = FBAccount.query.all()
+    all_pages = Page.query.all()
+    all_bms = BusinessManager.query.all()
+    all_partners = BMPartnerAccess.query.all()
+    all_groups = Group.query.all()
+    all_team = User.query.all()
+
+    ws_sum = wb.active
+    ws_sum.title = "Summary"
+    ws_sum.append(['FB MANAGER — COMPLETE DATA EXPORT'])
+    ws_sum['A1'].font = Font(bold=True, size=16, color='1877F2')
+    ws_sum.append([f'Generated: {datetime.now().strftime("%d %B %Y, %I:%M %p")}'])
+    ws_sum.append([])
+
+    summary_rows = [
+        ('Total FB Accounts', len(all_accounts)),
+        ('  — Active', sum(1 for a in all_accounts if a.status == 'active')),
+        ('  — With Issues', sum(1 for a in all_accounts if a.issue_type and a.issue_type != 'none')),
+        ('Total Pages', len(all_pages)),
+        ('  — Monetized', sum(1 for p in all_pages if p.monetization_status == 'monetized')),
+        ('  — Recommendation Not Okay', sum(1 for p in all_pages if (p.recommendation or 'okay') == 'not_okay')),
+        ('  — Status Problem', sum(1 for p in all_pages if (p.page_status or 'active') != 'active')),
+        ('Total Page Followers', sum(p.current_followers or 0 for p in all_pages)),
+        ('Total Business Managers', len(all_bms)),
+        ('  — Partner Access Records', len(all_partners)),
+        ('  — BMs With Invites Given', sum(1 for b in all_bms if b.invited_to_fb_account_id)),
+        ('Total Groups', len(all_groups)),
+        ('  — Total Group Members', sum(g.members_count or 0 for g in all_groups)),
+        ('Total Team Members', sum(1 for u in all_team if u.role != 'owner')),
+        ('Total Investment (PKR)', sum(a.purchase_cost or 0 for a in all_accounts)),
+    ]
+    ws_sum.append(['Metric', 'Value'])
+    for c in (1, 2):
+        cell = ws_sum.cell(row=4, column=c)
+        cell.font = Font(bold=True, color='FFFFFF')
+        cell.fill = PatternFill(start_color='1877F2', end_color='1877F2', fill_type='solid')
+    for label, value in summary_rows:
+        ws_sum.append([label, value])
+    ws_sum.column_dimensions['A'].width = 32
+    ws_sum.column_dimensions['B'].width = 20
+
+    # ---------- SHEET 2: MASTER (page-centric, sab kuch jointly) ----------
+    master_rows = []
+    for p in all_pages:
+        acc = p.fb_account
+        bm = p.business_manager
+        partner_names = ''
+        if bm and bm.partner_accesses:
+            partner_names = ', '.join(
+                f"{pa.partner_bm_name}({pa.partner_bm_id or 'no-id'})" for pa in bm.partner_accesses
+            )
+        page_groups = [g for g in all_groups if g.page_id == p.id]
+        group_txt = ', '.join(f"{g.group_name} ({g.members_count or 0:,})" for g in page_groups)
+
+        master_rows.append([
+            p.page_name, p.page_url or '', p.niche or '',
+            p.page_status or 'active', p.recommendation or 'okay',
+            p.monetization_status or 'non_monetized',
+            'Yes' if p.is_fresh_start else 'No',
+            p.followers_at_start or 0, p.current_followers or 0,
+            # FB ID
+            acc.account_name if acc else '', acc.email if acc else '',
+            acc.location if acc else '', acc.profile_username if acc else '',
+            (acc.issue_type if acc and acc.issue_type != 'none' else '') if acc else '',
+            acc.status if acc else '',
+            # BM
+            bm.bm_name if bm else '', bm.bm_id if bm else '',
+            bm.invited_fb_account.account_name if (bm and bm.invited_fb_account) else '',
+            len(bm.partner_accesses) if bm else 0, partner_names,
+            # worker + groups
+            p.assigned_worker.full_name if p.assigned_worker else '',
+            len(page_groups), group_txt,
+            p.page_created_date.strftime('%Y-%m-%d') if p.page_created_date else '',
+            p.monetized_date.strftime('%Y-%m-%d') if p.monetized_date else '',
+            p.notes or ''
+        ])
+
+    add_sheet("Master Sheet", [
+        'Page Name', 'Page URL', 'Niche', 'Page Status', 'Recommendation', 'Monetization',
+        'Fresh Start', 'Followers At Start', 'Current Followers',
+        'FB ID Name', 'FB Email', 'FB Location', 'FB Username', 'FB Issue', 'FB Status',
+        'BM Name', 'BM ID', 'BM Invited To (FB ID)', 'Partner Access Count', 'Partner BMs',
+        'Assigned Worker', 'Groups Count', 'Linked Groups', 'Page Created', 'Monetized Date', 'Notes'
+    ], master_rows,
+        [26, 32, 14, 14, 16, 16, 12, 16, 16, 22, 24, 14, 20, 16, 12,
+         22, 20, 22, 16, 40, 20, 12, 40, 14, 14, 30], '1877F2')
+
+    # ---------- SHEET 3: FB ACCOUNTS ----------
+    add_sheet("FB Accounts", [
+        'Account Name', 'Email', 'Phone', 'Password', 'Recovery Email', '2FA Code',
+        'Location', 'Issue Type', 'Issue Notes', 'Profile Link', 'Username', 'DOB',
+        'Status', 'Purchase Date', 'Cost (PKR)', 'Pages', 'BMs', 'Notes'
+    ], [[
+        a.account_name or '', a.email or '', a.phone or '', a.get_fb_password() or '',
+        a.recovery_email or '', a.get_two_fa_code() or '', a.location or '',
+        a.issue_type or 'none', a.issue_notes or '', a.profile_link or '',
+        a.profile_username or '', a.date_of_birth.strftime('%Y-%m-%d') if a.date_of_birth else '',
+        a.status or 'active', a.purchase_date.strftime('%Y-%m-%d') if a.purchase_date else '',
+        a.purchase_cost or 0, len(a.pages), len(a.business_managers), a.notes or ''
+    ] for a in all_accounts],
+        [22, 26, 15, 20, 24, 20, 14, 16, 28, 34, 18, 12, 12, 14, 14, 8, 8, 28], 'd62976')
+
+    # ---------- SHEET 4: BUSINESS MANAGERS ----------
+    add_sheet("Business Managers", [
+        'BM Name', 'BM ID', 'Owner FB ID', 'Status', 'Invited To FB ID', 'Invite Date',
+        'Invite Notes', 'Partner Access Count', 'Pages Under BM'
+    ], [[
+        b.bm_name or '', b.bm_id or '',
+        b.fb_account.account_name if b.fb_account else '', b.status or '',
+        b.invited_fb_account.account_name if b.invited_fb_account else '',
+        b.invite_date.strftime('%Y-%m-%d') if b.invite_date else '',
+        b.invite_notes or '', len(b.partner_accesses),
+        Page.query.filter_by(bm_id=b.id).count()
+    ] for b in all_bms],
+        [24, 22, 22, 12, 24, 14, 30, 18, 16], '7F77DD')
+
+    # ---------- SHEET 5: PARTNER ACCESS ----------
+    add_sheet("Partner Access", [
+        'Source BM Name', 'Source BM ID', 'Source Owner FB ID', 'Partner BM Name',
+        'Partner BM ID', 'Access Level', 'Granted Date', 'Active', 'Notes'
+    ], [[
+        pa.source_bm.bm_name if pa.source_bm else '',
+        pa.source_bm.bm_id if pa.source_bm else '',
+        pa.source_bm.fb_account.account_name if (pa.source_bm and pa.source_bm.fb_account) else '',
+        pa.partner_bm_name or '', pa.partner_bm_id or '', pa.access_level or '',
+        pa.access_granted_date.strftime('%Y-%m-%d') if pa.access_granted_date else '',
+        'Yes' if pa.is_active else 'No', pa.notes or ''
+    ] for pa in all_partners],
+        [24, 20, 22, 24, 20, 18, 14, 10, 30], '5b21b6')
+
+    # ---------- SHEET 6: PAGES ----------
+    add_sheet("Pages", [
+        'Page Name', 'Page URL', 'Niche', 'FB ID', 'BM', 'Worker', 'Monetization',
+        'Page Status', 'Status Notes', 'Recommendation', 'Reco Notes',
+        'Fresh Start', 'Followers Start', 'Current Followers', 'Created', 'Monetized', 'Notes'
+    ], [[
+        p.page_name or '', p.page_url or '', p.niche or '',
+        p.fb_account.account_name if p.fb_account else '',
+        p.business_manager.bm_name if p.business_manager else '',
+        p.assigned_worker.full_name if p.assigned_worker else '',
+        p.monetization_status or '', p.page_status or 'active', p.page_status_notes or '',
+        p.recommendation or 'okay', p.recommendation_notes or '',
+        'Yes' if p.is_fresh_start else 'No', p.followers_at_start or 0, p.current_followers or 0,
+        p.page_created_date.strftime('%Y-%m-%d') if p.page_created_date else '',
+        p.monetized_date.strftime('%Y-%m-%d') if p.monetized_date else '', p.notes or ''
+    ] for p in all_pages],
+        [26, 32, 14, 22, 20, 18, 16, 14, 26, 16, 26, 12, 15, 16, 14, 14, 28], '42b72a')
+
+    # ---------- SHEET 7: GROUPS ----------
+    add_sheet("Groups", [
+        'Group Name', 'Group URL', 'Group FB ID', 'Linked Page', 'Linked FB ID',
+        'Members', 'Status', 'Notes'
+    ], [[
+        g.group_name or '', g.group_url or '', g.group_fb_id or '',
+        g.page.page_name if g.page else '', g.fb_account.account_name if g.fb_account else '',
+        g.members_count or 0, g.status or 'active', g.notes or ''
+    ] for g in all_groups],
+        [28, 34, 20, 24, 22, 14, 12, 30], '0ea5e9')
+
+    # ---------- SHEET 8: TEAM ----------
+    add_sheet("Team", [
+        'Full Name', 'Username', 'Role', 'Phone', 'Supervisor', 'Active', 'Joined',
+        'Pages Assigned', 'Can Add/Edit', 'Can Delete', 'Can Export', 'Can View Passwords'
+    ], [[
+        u.full_name or '', u.username or '', u.role or '', u.phone or '',
+        u.supervisor.full_name if u.supervisor else '', 'Yes' if u.is_active else 'No',
+        u.created_at.strftime('%Y-%m-%d') if u.created_at else '',
+        Page.query.filter_by(assigned_worker_id=u.id).count(),
+        'Yes' if u.has_perm('add_edit') else 'No',
+        'Yes' if u.has_perm('delete') else 'No',
+        'Yes' if u.has_perm('export') else 'No',
+        'Yes' if u.has_perm('view_passwords') else 'No'
+    ] for u in all_team],
+        [24, 18, 14, 15, 22, 10, 14, 14, 14, 12, 12, 18], 'ec4899')
+
+    # ---------- SHEET 9: PAYMENTS ----------
+    add_sheet("Payments", [
+        'Month', 'Member', 'Role', 'Earned (USD)', 'To Pay (PKR)', 'FB Received',
+        'Received Date', 'Paid', 'Payment Date', 'Method', 'Reference', 'Status', 'Notes'
+    ], [[
+        pm.month or '', pm.user.full_name if pm.user else '', pm.user.role if pm.user else '',
+        pm.total_earned_usd or 0, pm.agreed_amount_pkr or 0,
+        'Yes' if pm.received_from_fb else 'No',
+        pm.received_date.strftime('%Y-%m-%d') if pm.received_date else '',
+        'Yes' if pm.paid_to_member else 'No',
+        pm.payment_date.strftime('%Y-%m-%d') if pm.payment_date else '',
+        pm.payment_method or '', pm.payment_reference or '', pm.status, pm.notes or ''
+    ] for pm in TeamPayment.query.all()],
+        [12, 22, 14, 14, 16, 12, 14, 10, 14, 16, 20, 12, 26], 'f59e0b')
+
+    # ---------- SHEET 10: DAILY REPORTS (last 90 days) ----------
+    since = date.today() - timedelta(days=90)
+    reports = DailyReport.query.filter(DailyReport.report_date >= since).order_by(
+        DailyReport.report_date.desc()).all()
+    add_sheet("Daily Reports (90d)", [
+        'Date', 'Page', 'FB ID', 'Worker', 'Views', 'Reach', 'Followers Gained', 'Earnings (USD)', 'Notes'
+    ], [[
+        r.report_date.strftime('%Y-%m-%d') if r.report_date else '',
+        r.page.page_name if r.page else '',
+        r.page.fb_account.account_name if (r.page and r.page.fb_account) else '',
+        r.worker.full_name if r.worker else '',
+        r.views or 0, r.reach or 0, r.followers_gained or 0, r.earnings_usd or 0, r.notes or ''
+    ] for r in reports],
+        [14, 26, 22, 20, 12, 12, 16, 15, 26], '0891b2')
+
+    # ---------- SHEET 11: ACTIVITY LOG ----------
+    add_sheet("Activity Log", [
+        'Date & Time', 'User', 'Role', 'Action', 'Type', 'Name', 'Details'
+    ], [[
+        l.created_at.strftime('%Y-%m-%d %H:%M') if l.created_at else '',
+        l.user_name or '', l.user_role or '', (l.action or '').upper(),
+        l.entity_type or '', l.entity_name or '', l.details or ''
+    ] for l in ActivityLog.query.order_by(ActivityLog.created_at.desc()).limit(1000).all()],
+        [18, 22, 14, 12, 18, 30, 40], '64748b')
+
+    filename = f"FB_Manager_COMPLETE_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+    log_activity('create', 'Master Export', filename, 'Complete data export download kiya')
+    return _excel_response(wb, filename)
 
 
 # ==================== INITIALIZE ====================
