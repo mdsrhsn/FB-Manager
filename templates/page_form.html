@@ -4,6 +4,8 @@
 {% block content %}
 <div class="card" style="max-width: 800px;">
     <form method="POST">
+        <h3 style="margin-bottom: 16px; color: #1877F2;">📄 Page Info</h3>
+
         <div class="form-group">
             <label>Page Name *</label>
             <input type="text" name="page_name" class="form-control" required value="{{ page.page_name if page else '' }}">
@@ -20,7 +22,7 @@
                 <select name="fb_account_id" class="form-control" required>
                     <option value="">-- Select --</option>
                     {% for a in fb_accounts %}
-                    <option value="{{ a.id }}" {% if page and page.fb_account_id == a.id %}selected{% endif %}>{{ a.account_name }}</option>
+                    <option value="{{ a.id }}" {% if page and page.fb_account_id == a.id %}selected{% endif %}>{{ a.account_name }}{% if a.location %} ({{ a.location }}){% endif %}</option>
                     {% endfor %}
                 </select>
             </div>
@@ -50,6 +52,62 @@
                 </select>
             </div>
         </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
+        {# ============ NEW: RECOMMENDATION STATUS ============ #}
+        <h3 style="margin-bottom: 16px; color: #f59e0b;">👍 Page Recommendation Status</h3>
+        <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+            Kya yeh page recommendation ke liye theek hai?
+        </p>
+
+        <div class="form-group">
+            <label>Recommendation *</label>
+            <select name="recommendation" id="recommendation" class="form-control" onchange="toggleRecoNotes()">
+                <option value="okay" {% if not page or page.recommendation == 'okay' %}selected{% endif %}>👍 Okay</option>
+                <option value="not_okay" {% if page and page.recommendation == 'not_okay' %}selected{% endif %}>👎 Not Okay</option>
+            </select>
+        </div>
+
+        <div class="form-group" id="reco_notes_group" style="{% if not page or page.recommendation != 'not_okay' %}display:none;{% endif %}">
+            <label>Recommendation Notes</label>
+            <textarea name="recommendation_notes" class="form-control" rows="2" 
+                      placeholder="Kyun not okay hai? Tafseel likhen...">{{ page.recommendation_notes if page and page.recommendation_notes else '' }}</textarea>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
+        {# ============ NEW: FRESH START + FOLLOWERS ============ #}
+        <h3 style="margin-bottom: 16px; color: #42b72a;">🆕 Fresh Start & Followers</h3>
+
+        <div class="form-group">
+            <label>Kya yeh Page Fresh Start hai? *</label>
+            <select name="is_fresh_start" id="is_fresh_start" class="form-control" onchange="toggleFollowersStart()">
+                <option value="yes" {% if not page or page.is_fresh_start %}selected{% endif %}>✅ Haan — bilkul naya page (0 followers se shuru)</option>
+                <option value="no" {% if page and not page.is_fresh_start %}selected{% endif %}>📊 Nahi — pehle se followers hain</option>
+            </select>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group" id="followers_start_group" style="{% if not page or page.is_fresh_start %}display:none;{% endif %}">
+                <label>Followers At Start (jab page liya tha)</label>
+                <input type="number" name="followers_at_start" class="form-control" min="0"
+                       value="{{ page.followers_at_start if page and page.followers_at_start else 0 }}"
+                       placeholder="e.g. 12000">
+                <small style="color: #65676b; font-size: 12px;">Page add karte waqt kitne followers thay</small>
+            </div>
+            <div class="form-group">
+                <label>👥 Current Followers</label>
+                <input type="number" name="current_followers" class="form-control" min="0"
+                       value="{{ page.current_followers if page and page.current_followers else 0 }}"
+                       placeholder="e.g. 45000">
+                <small style="color: #65676b; font-size: 12px;">Abhi kitne followers hain</small>
+            </div>
+        </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
+        <h3 style="margin-bottom: 16px; color: #d62976;">💰 Monetization</h3>
         
         <div class="form-row">
             <div class="form-group">
@@ -84,4 +142,20 @@
         </div>
     </form>
 </div>
+
+<script>
+// Recommendation notes show/hide
+function toggleRecoNotes() {
+    const val = document.getElementById('recommendation').value;
+    const group = document.getElementById('reco_notes_group');
+    group.style.display = (val === 'not_okay') ? 'block' : 'none';
+}
+
+// Followers at start show/hide
+function toggleFollowersStart() {
+    const val = document.getElementById('is_fresh_start').value;
+    const group = document.getElementById('followers_start_group');
+    group.style.display = (val === 'no') ? 'block' : 'none';
+}
+</script>
 {% endblock %}

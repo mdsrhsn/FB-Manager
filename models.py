@@ -2,6 +2,8 @@
 FB Manager - Database Models
 ============================
 Sare database tables yahan defined hain
+
+VERSION 2.0 - 10 FEATURES UPDATE
 """
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
@@ -14,7 +16,7 @@ db = SQLAlchemy()
 class User(db.Model, UserMixin):
     """Team members: Owner, Supervisor, Worker"""
     __tablename__ = 'users'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     full_name = db.Column(db.String(120), nullable=False)
@@ -24,22 +26,21 @@ class User(db.Model, UserMixin):
     phone = db.Column(db.String(20))
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationships
+
     workers = db.relationship('User', backref=db.backref('supervisor', remote_side=[id]))
-    
+
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
-    
+
     def check_password(self, password):
         return check_password_hash(self.password_hash, password)
-    
+
     def is_owner(self):
         return self.role == 'owner'
-    
+
     def is_supervisor(self):
         return self.role == 'supervisor'
-    
+
     def is_worker(self):
         return self.role == 'worker'
 
@@ -47,50 +48,59 @@ class User(db.Model, UserMixin):
 class FBAccount(db.Model):
     """Aap ki Facebook IDs (multiple logins)"""
     __tablename__ = 'fb_accounts'
-    
+
     id = db.Column(db.Integer, primary_key=True)
-    account_name = db.Column(db.String(120), nullable=False)  # e.g. "Mudassar FB 1"
+    account_name = db.Column(db.String(120), nullable=False)
     email = db.Column(db.String(120))
     phone = db.Column(db.String(20))
-    fb_password = db.Column(db.Text)  # encrypted - owner only visible
-    recovery_email = db.Column(db.String(120))  # backup email
-    two_fa_code = db.Column(db.Text)  # encrypted - 2FA backup codes
+    fb_password = db.Column(db.Text)  # encrypted
+    recovery_email = db.Column(db.String(120))
+    two_fa_code = db.Column(db.Text)  # encrypted
     purchase_date = db.Column(db.Date)
     purchase_cost = db.Column(db.Float, default=0)  # PKR
-    status = db.Column(db.String(20), default='active')  # active, restricted, banned, disabled
+    status = db.Column(db.String(20), default='active')
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
+    # ============ V2 FIELDS ============
+    location = db.Column(db.String(80))  # Feature 1: Pakistan, USA, Finland...
+    issue_type = db.Column(db.String(30), default='none')  # Feature 2
+    issue_notes = db.Column(db.Text)
+    profile_link = db.Column(db.String(255))  # Feature 10
+    profile_username = db.Column(db.String(120))  # Feature 10 auto-extracted
+    date_of_birth = db.Column(db.Date)
+
     # Relationships
     pages = db.relationship('Page', backref='fb_account', lazy=True)
-    business_managers = db.relationship('BusinessManager', backref='fb_account', lazy=True)
-    
+    business_managers = db.relationship(
+        'BusinessManager',
+        foreign_keys='BusinessManager.fb_account_id',
+        backref='fb_account',
+        lazy=True
+    )
+
     # ============ ENCRYPTION HELPERS ============
     def set_fb_password(self, plain_password):
-        """Password encrypt karke save karen"""
         if plain_password:
             from crypto_utils import encrypt_text
             self.fb_password = encrypt_text(plain_password)
         else:
             self.fb_password = None
-    
+
     def get_fb_password(self):
-        """Decrypted password return karen"""
         if not self.fb_password:
             return ''
         from crypto_utils import decrypt_text
         return decrypt_text(self.fb_password)
-    
+
     def set_two_fa_code(self, plain_code):
-        """2FA code encrypt karke save karen"""
         if plain_code:
             from crypto_utils import encrypt_text
             self.two_fa_code = encrypt_text(plain_code)
         else:
             self.two_fa_code = None
-    
+
     def get_two_fa_code(self):
-        """Decrypted 2FA code return karen"""
         if not self.two_fa_code:
             return ''
         from crypto_utils import decrypt_text
@@ -100,7 +110,7 @@ class FBAccount(db.Model):
 class BusinessManager(db.Model):
     """Business Manager accounts"""
     __tablename__ = 'business_managers'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     bm_name = db.Column(db.String(120), nullable=False)
     bm_id = db.Column(db.String(50))  # Facebook BM ID
@@ -108,88 +118,155 @@ class BusinessManager(db.Model):
     status = db.Column(db.String(20), default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # ============ V2 FIELDS: Invite tracking (Feature 5) ============
+    invited_to_fb_account_id = db.Column(
+        db.Integer,
+        db.ForeignKey('fb_accounts.id'),
+        nullable=True
+    )
+    invite_date = db.Column(db.Date, nullable=True)
+    invite_notes = db.Column(db.Text)
+
+    invited_fb_account = db.relationship(
+        'FBAccount',
+        foreign_keys=[invited_to_fb_account_id],
+        backref=db.backref('bm_invites_received', lazy=True)
+    )
+
+    # Feature 4: partner access records
+    partner_accesses = db.relationship(
+        'BMPartnerAccess',
+        backref='source_bm',
+        lazy=True,
+        cascade='all, delete-orphan'
+    )
+
+
+class BMPartnerAccess(db.Model):
+    """
+    Feature 4: BM Partner Access tracking
+    Jab kisi BM ko doosri BM ko Partner Access diya jata hai, yahan record hota hai.
+    """
+    __tablename__ = 'bm_partner_access'
+
+    id = db.Column(db.Integer, primary_key=True)
+    source_bm_id = db.Column(db.Integer, db.ForeignKey('business_managers.id'), nullable=False)
+    partner_bm_name = db.Column(db.String(120), nullable=False)
+    partner_bm_id = db.Column(db.String(50))
+    access_granted_date = db.Column(db.Date, nullable=True)
+    access_level = db.Column(db.String(50))
+    notes = db.Column(db.Text)
+    is_active = db.Column(db.Boolean, default=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
 
 class Page(db.Model):
     """Facebook Pages"""
     __tablename__ = 'pages'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     page_name = db.Column(db.String(150), nullable=False)
     page_url = db.Column(db.String(255))
-    niche = db.Column(db.String(80))  # Comedy, News, Animals, etc.
+    niche = db.Column(db.String(80))
     fb_account_id = db.Column(db.Integer, db.ForeignKey('fb_accounts.id'), nullable=False)
     bm_id = db.Column(db.Integer, db.ForeignKey('business_managers.id'), nullable=True)
     assigned_worker_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
-    
-    monetization_status = db.Column(db.String(20), default='non_monetized')  
-    # non_monetized, in_review, monetized, suspended
-    
+    monetization_status = db.Column(db.String(20), default='non_monetized')
     monetized_date = db.Column(db.Date, nullable=True)
     page_created_date = db.Column(db.Date, nullable=True)
     notes = db.Column(db.Text)
     is_active = db.Column(db.Boolean, default=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
+
+    # ============ V2 FIELDS ============
+    recommendation = db.Column(db.String(10), default='okay')  # Feature 3: 'okay' / 'not_okay'
+    recommendation_notes = db.Column(db.Text)
+    is_fresh_start = db.Column(db.Boolean, default=True)  # Feature 6
+    followers_at_start = db.Column(db.Integer, default=0)
+    current_followers = db.Column(db.Integer, default=0)
+
     # Relationships
     assigned_worker = db.relationship('User', foreign_keys=[assigned_worker_id])
     business_manager = db.relationship('BusinessManager', foreign_keys=[bm_id])
     daily_reports = db.relationship('DailyReport', backref='page', lazy=True)
 
+    # Feature 7: Groups linked to this page
+    linked_groups = db.relationship(
+        'Group',
+        foreign_keys='Group.page_id',
+        backref='page',
+        lazy=True
+    )
+
+
+class Group(db.Model):
+    """
+    Feature 7: Facebook Groups linked to Pages or FB Accounts
+    """
+    __tablename__ = 'groups'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_name = db.Column(db.String(150), nullable=False)
+    group_url = db.Column(db.String(255))
+    group_fb_id = db.Column(db.String(50))
+
+    page_id = db.Column(db.Integer, db.ForeignKey('pages.id'), nullable=True)
+    fb_account_id = db.Column(db.Integer, db.ForeignKey('fb_accounts.id'), nullable=True)
+
+    members_count = db.Column(db.Integer, default=0)
+    status = db.Column(db.String(20), default='active')
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    fb_account = db.relationship(
+        'FBAccount',
+        foreign_keys=[fb_account_id],
+        backref=db.backref('linked_groups', lazy=True)
+    )
+
 
 class DailyReport(db.Model):
     """Daily report har page ke liye"""
     __tablename__ = 'daily_reports'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     page_id = db.Column(db.Integer, db.ForeignKey('pages.id'), nullable=False)
     worker_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
     report_date = db.Column(db.Date, nullable=False, default=datetime.utcnow().date)
-    
     views = db.Column(db.Integer, default=0)
     reach = db.Column(db.Integer, default=0)
     followers_gained = db.Column(db.Integer, default=0)
-    
-    # Earnings - sirf owner dekh sakta hai
     earnings_usd = db.Column(db.Float, default=0)
-    
     notes = db.Column(db.Text)
     submitted_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationships
+
     worker = db.relationship('User', foreign_keys=[worker_id])
-    
-    # Unique constraint - ek page ka ek din ka ek hi report
+
     __table_args__ = (db.UniqueConstraint('page_id', 'report_date', name='unique_page_date'),)
 
 
 class TeamPayment(db.Model):
     """Supervisor aur Worker dono ke liye payment tracking"""
     __tablename__ = 'team_payments'
-    
+
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False)
-    
-    month = db.Column(db.String(7), nullable=False)  # YYYY-MM format
-    
-    # Earnings details
-    total_earned_usd = db.Column(db.Float, default=0)  # FB se kitna earn hua
-    agreed_amount_pkr = db.Column(db.Float, default=0)  # Worker/supervisor ko kitna dena hai
-    
-    # Status tracking
+    month = db.Column(db.String(7), nullable=False)  # YYYY-MM
+
+    total_earned_usd = db.Column(db.Float, default=0)
+    agreed_amount_pkr = db.Column(db.Float, default=0)
+
     received_from_fb = db.Column(db.Boolean, default=False)
     received_date = db.Column(db.Date, nullable=True)
-    
     paid_to_member = db.Column(db.Boolean, default=False)
     payment_date = db.Column(db.Date, nullable=True)
-    payment_method = db.Column(db.String(50))  # Cash, Bank, EasyPaisa, JazzCash
-    payment_reference = db.Column(db.String(100))  # Transaction ID
-    
+    payment_method = db.Column(db.String(50))
+    payment_reference = db.Column(db.String(100))
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-    
-    # Relationships
+
     user = db.relationship('User', foreign_keys=[user_id])
-    
+
     @property
     def status(self):
         if self.paid_to_member:
@@ -200,38 +277,157 @@ class TeamPayment(db.Model):
             return 'pending'
 
 
+# ==================== UTILITY: Extract Username from FB URL ====================
+def extract_username_from_url(url):
+    """Feature 10: FB Profile Link se username auto-extract"""
+    if not url:
+        return None
+
+    try:
+        url = url.strip().rstrip('/')
+
+        for prefix in ('https://', 'http://'):
+            if url.startswith(prefix):
+                url = url[len(prefix):]
+                break
+
+        for prefix in ('www.', 'm.', 'mbasic.', 'web.'):
+            if url.startswith(prefix):
+                url = url[len(prefix):]
+                break
+
+        if not (url.startswith('facebook.com/') or url.startswith('fb.com/')):
+            return None
+
+        if url.startswith('facebook.com/'):
+            path = url[len('facebook.com/'):]
+        else:
+            path = url[len('fb.com/'):]
+
+        if not path:
+            return None
+
+        for separator in ('?', '#'):
+            if separator in path:
+                path = path.split(separator)[0]
+
+        if path.startswith('profile.php'):
+            if '?' in url:
+                query = url.split('?', 1)[1]
+                for param in query.split('&'):
+                    if param.startswith('id='):
+                        numeric_id = param[3:].split('&')[0].split('#')[0]
+                        if numeric_id.isdigit():
+                            return f'id_{numeric_id}'
+            return None
+
+        if path.startswith('people/'):
+            parts = path.split('/')
+            if len(parts) >= 3:
+                return f'people_{parts[1]}_{parts[2]}'
+            return None
+
+        username = path.split('/')[0]
+
+        if not username:
+            return None
+
+        if not all(c.isalnum() or c in '._-' for c in username):
+            return None
+
+        return username
+
+    except Exception:
+        return None
+
+
+# ==================== DATABASE INIT + AUTO-MIGRATION ====================
 def init_db(app):
     """Database initialize karna aur default owner user banana"""
     with app.app_context():
         db.create_all()
-        
-        # ==================== AUTO-MIGRATION ====================
-        # Naye columns add karen agar existing table mein nahi hain
+
         from sqlalchemy import inspect, text
+
         inspector = inspect(db.engine)
-        
+        all_migrations = []
+
+        # PostgreSQL (Railway) aur SQLite (local) ka syntax alag hai
+        is_postgres = db.engine.dialect.name == 'postgresql'
+        BOOL_TRUE = 'BOOLEAN DEFAULT TRUE' if is_postgres else 'BOOLEAN DEFAULT 1'
+
+        # ---- fb_accounts new columns ----
         if 'fb_accounts' in inspector.get_table_names():
             existing_cols = [col['name'] for col in inspector.get_columns('fb_accounts')]
-            
-            # SQLite aur PostgreSQL dono ke liye work karta hai
             migrations = []
+
             if 'fb_password' not in existing_cols:
                 migrations.append(('fb_password', 'TEXT'))
             if 'recovery_email' not in existing_cols:
                 migrations.append(('recovery_email', 'VARCHAR(120)'))
             if 'two_fa_code' not in existing_cols:
                 migrations.append(('two_fa_code', 'TEXT'))
-            
-            if migrations:
-                with db.engine.connect() as conn:
-                    for col_name, col_type in migrations:
-                        try:
-                            conn.execute(text(f'ALTER TABLE fb_accounts ADD COLUMN {col_name} {col_type}'))
-                            conn.commit()
-                            print(f"✅ Migration: Added column 'fb_accounts.{col_name}'")
-                        except Exception as e:
-                            print(f"⚠️ Migration warning for {col_name}: {e}")
-        
+            if 'location' not in existing_cols:
+                migrations.append(('location', 'VARCHAR(80)'))
+            if 'issue_type' not in existing_cols:
+                migrations.append(('issue_type', "VARCHAR(30) DEFAULT 'none'"))
+            if 'issue_notes' not in existing_cols:
+                migrations.append(('issue_notes', 'TEXT'))
+            if 'profile_link' not in existing_cols:
+                migrations.append(('profile_link', 'VARCHAR(255)'))
+            if 'profile_username' not in existing_cols:
+                migrations.append(('profile_username', 'VARCHAR(120)'))
+            if 'date_of_birth' not in existing_cols:
+                migrations.append(('date_of_birth', 'DATE'))
+
+            for col_name, col_type in migrations:
+                all_migrations.append(('fb_accounts', col_name, col_type))
+
+        # ---- business_managers new columns ----
+        if 'business_managers' in inspector.get_table_names():
+            existing_cols = [col['name'] for col in inspector.get_columns('business_managers')]
+            migrations = []
+
+            if 'invited_to_fb_account_id' not in existing_cols:
+                migrations.append(('invited_to_fb_account_id', 'INTEGER'))
+            if 'invite_date' not in existing_cols:
+                migrations.append(('invite_date', 'DATE'))
+            if 'invite_notes' not in existing_cols:
+                migrations.append(('invite_notes', 'TEXT'))
+
+            for col_name, col_type in migrations:
+                all_migrations.append(('business_managers', col_name, col_type))
+
+        # ---- pages new columns ----
+        if 'pages' in inspector.get_table_names():
+            existing_cols = [col['name'] for col in inspector.get_columns('pages')]
+            migrations = []
+
+            if 'recommendation' not in existing_cols:
+                migrations.append(('recommendation', "VARCHAR(10) DEFAULT 'okay'"))
+            if 'recommendation_notes' not in existing_cols:
+                migrations.append(('recommendation_notes', 'TEXT'))
+            if 'is_fresh_start' not in existing_cols:
+                migrations.append(('is_fresh_start', BOOL_TRUE))
+            if 'followers_at_start' not in existing_cols:
+                migrations.append(('followers_at_start', 'INTEGER DEFAULT 0'))
+            if 'current_followers' not in existing_cols:
+                migrations.append(('current_followers', 'INTEGER DEFAULT 0'))
+
+            for col_name, col_type in migrations:
+                all_migrations.append(('pages', col_name, col_type))
+
+        # ---- Apply all migrations ----
+        if all_migrations:
+            with db.engine.connect() as conn:
+                for table_name, col_name, col_type in all_migrations:
+                    try:
+                        conn.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}'))
+                        conn.commit()
+                        print(f"Migration: Added column '{table_name}.{col_name}'")
+                    except Exception as e:
+                        print(f"Migration warning for {table_name}.{col_name}: {e}")
+
         # Default owner user banao agar nahi hai
         if not User.query.filter_by(role='owner').first():
             owner = User(
@@ -240,7 +436,7 @@ def init_db(app):
                 role='owner',
                 phone='',
             )
-            owner.set_password('admin123')  # IMPORTANT: change after first login
+            owner.set_password('admin123')
             db.session.add(owner)
             db.session.commit()
-            print("✅ Default owner created: username='mudassar', password='admin123'")
+            print("Default owner created: username='mudassar', password='admin123'")

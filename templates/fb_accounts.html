@@ -4,7 +4,7 @@
 {% block content %}
 <div class="card">
     <div class="card-title" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
-        <div>🔑 All Facebook Accounts ({{ accounts|length }})</div>
+        <div>🔑 All Facebook Accounts (<span id="total-count">{{ accounts|length }}</span>)</div>
         
         {% if current_user.is_owner() %}
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
@@ -30,12 +30,44 @@
         {% endif %}
     </div>
     
+    {# ============ NEW: Search Bar ============ #}
+    <div style="padding: 12px 16px; background: #f7f8fa; border-radius: 6px; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+            <span style="font-size: 18px;">🔍</span>
+            <input type="text" 
+                   id="search-input" 
+                   placeholder="Search karen — Account Name, Email, Phone, Location, Username..." 
+                   style="flex: 1; min-width: 250px; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
+                   oninput="filterAccounts()">
+            <select id="issue-filter" 
+                    style="padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px;"
+                    onchange="filterAccounts()">
+                <option value="">All Issues</option>
+                <option value="none">✅ No Issue</option>
+                <option value="whatsapp_code">📱 WhatsApp Code</option>
+                <option value="unknown_number">❓ Unknown Number</option>
+                <option value="banned">🚫 Banned</option>
+                <option value="password_issue">🔐 Password Issue</option>
+                <option value="2fa_issue">🔒 2FA Issue</option>
+                <option value="other">📝 Other</option>
+            </select>
+            <button type="button" onclick="clearSearch()" 
+                    class="btn btn-sm btn-secondary" style="white-space: nowrap;">
+                ✖ Clear
+            </button>
+            <span id="filter-result" style="color: #65676b; font-size: 13px; white-space: nowrap;"></span>
+        </div>
+    </div>
+    
     <div class="table-wrapper">
-        <table>
+        <table id="accounts-table">
             <thead>
                 <tr>
                     <th>Account Name</th>
                     <th>Email/Phone</th>
+                    <th>🌍 Location</th>
+                    <th>👤 Username</th>
+                    <th>⚠️ Issue</th>
                     {% if current_user.is_owner() %}<th>Password</th>{% endif %}
                     <th>Pages</th>
                     <th>BMs</th>
@@ -47,11 +79,65 @@
             </thead>
             <tbody>
                 {% for a in accounts %}
-                <tr>
-                    <td class="text-bold">{{ a.account_name }}</td>
+                <tr class="account-row" 
+                    data-name="{{ (a.account_name or '')|lower }}"
+                    data-email="{{ (a.email or '')|lower }}"
+                    data-phone="{{ (a.phone or '')|lower }}"
+                    data-location="{{ (a.location or '')|lower }}"
+                    data-username="{{ (a.profile_username or '')|lower }}"
+                    data-issue="{{ a.issue_type or 'none' }}">
+                    <td class="text-bold">
+                        {{ a.account_name }}
+                        {% if a.profile_link %}
+                        <a href="{{ a.profile_link }}" target="_blank" style="color: #1877F2; text-decoration: none; font-size: 12px; margin-left: 4px;" title="Open FB profile">🔗</a>
+                        {% endif %}
+                    </td>
                     <td>
                         {% if a.email %}<div style="font-size:0.85rem">{{ a.email }}</div>{% endif %}
                         {% if a.phone %}<div style="font-size:0.85rem" class="text-muted">{{ a.phone }}</div>{% endif %}
+                    </td>
+                    
+                    {# NEW: Location column #}
+                    <td>
+                        {% if a.location %}
+                            <span style="background: #e0f2fe; color: #0369a1; padding: 3px 8px; border-radius: 12px; font-size: 12px; font-weight: 500;">
+                                {{ a.location }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted" style="font-size: 12px;">-</span>
+                        {% endif %}
+                    </td>
+                    
+                    {# NEW: Username column #}
+                    <td>
+                        {% if a.profile_username %}
+                            <span style="font-family: monospace; font-size: 12px; background: #f3f4f6; padding: 2px 6px; border-radius: 4px;">
+                                {{ a.profile_username }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted" style="font-size: 12px;">-</span>
+                        {% endif %}
+                    </td>
+                    
+                    {# NEW: Issue indicator #}
+                    <td>
+                        {% if a.issue_type and a.issue_type != 'none' %}
+                            {% set issue_labels = {
+                                'whatsapp_code': ('📱', 'WhatsApp Code', '#fef3c7', '#92400e'),
+                                'unknown_number': ('❓', 'Unknown Number', '#fee2e2', '#991b1b'),
+                                'banned': ('🚫', 'Banned', '#fecaca', '#7f1d1d'),
+                                'password_issue': ('🔐', 'Password', '#fed7aa', '#9a3412'),
+                                '2fa_issue': ('🔒', '2FA', '#fed7aa', '#9a3412'),
+                                'other': ('📝', 'Other', '#e0e7ff', '#3730a3')
+                            } %}
+                            {% set label = issue_labels.get(a.issue_type, ('⚠️', a.issue_type, '#f3f4f6', '#374151')) %}
+                            <span style="background: {{ label[2] }}; color: {{ label[3] }}; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: 500;"
+                                  title="{{ a.issue_notes or 'No notes' }}">
+                                {{ label[0] }} {{ label[1] }}
+                            </span>
+                        {% else %}
+                            <span style="color: #10b981; font-size: 14px;">✅</span>
+                        {% endif %}
                     </td>
                     
                     {% if current_user.is_owner() %}
@@ -84,11 +170,25 @@
                     {% endif %}
                     <td><span class="status-badge status-{{ a.status }}">{{ a.status }}</span></td>
                     {% if current_user.is_owner() %}
-                    <td><a href="{{ url_for('edit_fb_account', account_id=a.id) }}" class="btn btn-secondary btn-sm">Edit</a></td>
+                    <td>
+                        <div style="display: flex; gap: 4px;">
+                            <a href="{{ url_for('edit_fb_account', account_id=a.id) }}" class="btn btn-secondary btn-sm">Edit</a>
+                            
+                            {# NEW: Delete button #}
+                            <form method="POST" action="{{ url_for('delete_fb_account', account_id=a.id) }}" 
+                                  style="display:inline; margin:0;"
+                                  onsubmit="return confirmDelete('{{ a.account_name|e }}', {{ a.pages|length }}, {{ a.business_managers|length }});">
+                                <button type="submit" class="btn btn-sm" 
+                                        style="background: #dc2626; color: white; padding: 4px 10px; font-size: 12px;">
+                                    🗑️ Delete
+                                </button>
+                            </form>
+                        </div>
+                    </td>
                     {% endif %}
                 </tr>
                 {% else %}
-                <tr><td colspan="9" class="text-center text-muted">Koi FB account add nahi kiya</td></tr>
+                <tr><td colspan="12" class="text-center text-muted">Koi FB account add nahi kiya</td></tr>
                 {% endfor %}
             </tbody>
         </table>
@@ -130,6 +230,83 @@
 {% endif %}
 
 <script>
+// ============ SEARCH & FILTER ============
+function filterAccounts() {
+    const searchTerm = document.getElementById('search-input').value.toLowerCase().trim();
+    const issueFilter = document.getElementById('issue-filter').value;
+    const rows = document.querySelectorAll('.account-row');
+    let visibleCount = 0;
+    
+    rows.forEach(row => {
+        const name = row.dataset.name || '';
+        const email = row.dataset.email || '';
+        const phone = row.dataset.phone || '';
+        const location = row.dataset.location || '';
+        const username = row.dataset.username || '';
+        const issue = row.dataset.issue || 'none';
+        
+        // Search match
+        const searchMatch = !searchTerm || 
+            name.includes(searchTerm) ||
+            email.includes(searchTerm) ||
+            phone.includes(searchTerm) ||
+            location.includes(searchTerm) ||
+            username.includes(searchTerm);
+        
+        // Issue filter match
+        const issueMatch = !issueFilter || issue === issueFilter;
+        
+        if (searchMatch && issueMatch) {
+            row.style.display = '';
+            visibleCount++;
+        } else {
+            row.style.display = 'none';
+        }
+    });
+    
+    // Update result count
+    const resultEl = document.getElementById('filter-result');
+    const totalRows = rows.length;
+    if (searchTerm || issueFilter) {
+        resultEl.textContent = `${visibleCount} / ${totalRows} accounts`;
+        resultEl.style.color = visibleCount === 0 ? '#dc2626' : '#65676b';
+    } else {
+        resultEl.textContent = '';
+    }
+}
+
+function clearSearch() {
+    document.getElementById('search-input').value = '';
+    document.getElementById('issue-filter').value = '';
+    filterAccounts();
+    document.getElementById('search-input').focus();
+}
+
+// Keyboard shortcut: Ctrl+K to focus search
+document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        document.getElementById('search-input').focus();
+    }
+});
+
+// ============ DELETE CONFIRM ============
+function confirmDelete(accountName, pageCount, bmCount) {
+    let warning = `⚠️ Kya aap wakai "${accountName}" account delete karna chahte hain?`;
+    
+    if (pageCount > 0 || bmCount > 0) {
+        warning += `\n\n🚫 WARNING: Iss account ke sath linked hain:`;
+        if (pageCount > 0) warning += `\n   • ${pageCount} Pages`;
+        if (bmCount > 0) warning += `\n   • ${bmCount} Business Managers`;
+        warning += `\n\nUnhen pehle delete/reassign karna hoga.`;
+    }
+    
+    warning += `\n\nYeh action WAAPAS nahi ho sakti!`;
+    
+    return confirm(warning);
+}
+
+// ============ PASSWORD TOGGLE (existing) ============
 const pwdCache = {};
 
 async function fetchPwd(id) {

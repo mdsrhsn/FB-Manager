@@ -22,6 +22,111 @@
             </div>
         </div>
         
+        {# ============ NEW FIELDS: Location, DOB ============ #}
+        <div class="form-row">
+            <div class="form-group">
+                <label>🌍 Location (Country)</label>
+                <input type="text" name="location" class="form-control" 
+                       list="country-list"
+                       value="{{ account.location if account else '' }}" 
+                       placeholder="e.g. Pakistan, USA, Finland, India"
+                       autocomplete="off">
+                <datalist id="country-list">
+                    <option value="Pakistan">
+                    <option value="India">
+                    <option value="USA">
+                    <option value="UK">
+                    <option value="Canada">
+                    <option value="Australia">
+                    <option value="Finland">
+                    <option value="Germany">
+                    <option value="France">
+                    <option value="Italy">
+                    <option value="Spain">
+                    <option value="Netherlands">
+                    <option value="Sweden">
+                    <option value="Norway">
+                    <option value="Denmark">
+                    <option value="Poland">
+                    <option value="Brazil">
+                    <option value="Mexico">
+                    <option value="Japan">
+                    <option value="South Korea">
+                    <option value="Singapore">
+                    <option value="UAE">
+                    <option value="Saudi Arabia">
+                    <option value="Turkey">
+                    <option value="Egypt">
+                    <option value="South Africa">
+                    <option value="Nigeria">
+                    <option value="Indonesia">
+                    <option value="Philippines">
+                    <option value="Vietnam">
+                    <option value="Thailand">
+                    <option value="Malaysia">
+                    <option value="Bangladesh">
+                </datalist>
+                <small style="color: #65676b; font-size: 12px;">FB ID kis country se register ki hai</small>
+            </div>
+            <div class="form-group">
+                <label>🎂 Date of Birth (Optional)</label>
+                <input type="date" name="date_of_birth" class="form-control" 
+                       value="{{ account.date_of_birth.strftime('%Y-%m-%d') if account and account.date_of_birth else '' }}">
+                <small style="color: #65676b; font-size: 12px;">FB ID par jo DOB set hai</small>
+            </div>
+        </div>
+        
+        {# ============ NEW FIELD: Profile Link + Auto Username Fetch ============ #}
+        <div class="form-group">
+            <label>🔗 Profile Link</label>
+            <input type="url" name="profile_link" id="profile_link" class="form-control" 
+                   value="{{ account.profile_link if account else '' }}" 
+                   placeholder="https://facebook.com/username"
+                   autocomplete="off"
+                   oninput="autoFetchUsername()">
+            <small style="color: #65676b; font-size: 12px;">FB profile ka pura URL — username auto-detect hoga niche</small>
+        </div>
+        
+        <div class="form-group">
+            <label>👤 Profile Username 
+                <span id="username-badge" style="display: none; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 6px;"></span>
+            </label>
+            <input type="text" name="profile_username" id="profile_username" class="form-control" 
+                   value="{{ account.profile_username if account else '' }}" 
+                   placeholder="Auto-fill hoga profile link se... ya manually likh sakte hain"
+                   autocomplete="off">
+            <small style="color: #65676b; font-size: 12px;">
+                🤖 Automatic detect hota hai profile link se. Agar galat detect ho to manually change kar sakte hain.
+            </small>
+        </div>
+        
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+        
+        {# ============ NEW FIELD: Issue Status ============ #}
+        <h3 style="margin-bottom: 16px; color: #f59e0b;">⚠️ Issue Status</h3>
+        <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+            Agar iss FB ID mein koi masla hai to yahan track karen
+        </p>
+        
+        <div class="form-group">
+            <label>Issue Type</label>
+            <select name="issue_type" id="issue_type" class="form-control" onchange="toggleIssueNotes()">
+                <option value="none" {% if not account or account.issue_type == 'none' %}selected{% endif %}>✅ Koi issue nahi</option>
+                <option value="whatsapp_code" {% if account and account.issue_type == 'whatsapp_code' %}selected{% endif %}>📱 Code WhatsApp par ja raha hai</option>
+                <option value="unknown_number" {% if account and account.issue_type == 'unknown_number' %}selected{% endif %}>❓ Code kisi aur number par ja raha hai (access nahi)</option>
+                <option value="banned" {% if account and account.issue_type == 'banned' %}selected{% endif %}>🚫 Account ban/restricted</option>
+                <option value="password_issue" {% if account and account.issue_type == 'password_issue' %}selected{% endif %}>🔐 Password kaam nahi kar raha</option>
+                <option value="2fa_issue" {% if account and account.issue_type == '2fa_issue' %}selected{% endif %}>🔒 2FA/Authenticator issue</option>
+                <option value="other" {% if account and account.issue_type == 'other' %}selected{% endif %}>📝 Doosra issue (notes mein likhen)</option>
+            </select>
+        </div>
+        
+        <div class="form-group" id="issue_notes_group" style="{% if not account or account.issue_type == 'none' %}display:none;{% endif %}">
+            <label>Issue Notes (Detailed)</label>
+            <textarea name="issue_notes" id="issue_notes" class="form-control" rows="3" 
+                      placeholder="Issue ki tafseel likhen — kya ho raha hai, kab shuru hua, etc.">{{ account.issue_notes if account and account.issue_notes else '' }}</textarea>
+        </div>
+        
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
         
         <h3 style="margin-bottom: 16px; color: #d62976;">🔐 Login Credentials (Encrypted)</h3>
@@ -101,6 +206,7 @@
 </div>
 
 <script>
+// Password field toggle
 function togglePassword(fieldId, btn) {
     const field = document.getElementById(fieldId);
     if (field.type === 'password') {
@@ -111,5 +217,121 @@ function togglePassword(fieldId, btn) {
         btn.innerHTML = '👁️ Show';
     }
 }
+
+// Issue notes show/hide based on type
+function toggleIssueNotes() {
+    const type = document.getElementById('issue_type').value;
+    const notesGroup = document.getElementById('issue_notes_group');
+    if (type === 'none') {
+        notesGroup.style.display = 'none';
+    } else {
+        notesGroup.style.display = 'block';
+    }
+}
+
+// ============ AUTO-FETCH USERNAME FROM PROFILE LINK (Feature 10) ============
+function extractUsernameFromUrl(url) {
+    if (!url) return null;
+    
+    try {
+        // Clean URL
+        url = url.trim().replace(/\/+$/, '');
+        
+        // Remove protocol
+        url = url.replace(/^https?:\/\//, '');
+        
+        // Remove common prefixes
+        url = url.replace(/^(www\.|m\.|mbasic\.|web\.)/, '');
+        
+        // Must be facebook.com or fb.com
+        if (!url.startsWith('facebook.com/') && !url.startsWith('fb.com/')) {
+            return null;
+        }
+        
+        // Extract path
+        let path = url.startsWith('facebook.com/') 
+            ? url.substring('facebook.com/'.length)
+            : url.substring('fb.com/'.length);
+        
+        if (!path) return null;
+        
+        // Handle profile.php?id=NUMBER
+        if (path.startsWith('profile.php')) {
+            const match = url.match(/[?&]id=(\d+)/);
+            if (match) return 'id_' + match[1];
+            return null;
+        }
+        
+        // Handle people/Name/ID format
+        if (path.startsWith('people/')) {
+            const parts = path.split('/');
+            if (parts.length >= 3) {
+                return 'people_' + parts[1] + '_' + parts[2].split('?')[0].split('#')[0];
+            }
+            return null;
+        }
+        
+        // Remove query string and fragment
+        path = path.split('?')[0].split('#')[0];
+        
+        // Get first path segment
+        const username = path.split('/')[0];
+        
+        if (!username) return null;
+        
+        // Basic validation - only allow valid chars
+        if (!/^[a-zA-Z0-9._-]+$/.test(username)) return null;
+        
+        return username;
+    } catch (e) {
+        return null;
+    }
+}
+
+function autoFetchUsername() {
+    const linkInput = document.getElementById('profile_link');
+    const usernameInput = document.getElementById('profile_username');
+    const badge = document.getElementById('username-badge');
+    
+    const url = linkInput.value.trim();
+    if (!url) {
+        badge.style.display = 'none';
+        return;
+    }
+    
+    const extracted = extractUsernameFromUrl(url);
+    
+    if (extracted) {
+        // Only auto-fill if the field is empty OR was previously auto-filled
+        if (!usernameInput.value || usernameInput.dataset.autoFilled === 'true') {
+            usernameInput.value = extracted;
+            usernameInput.dataset.autoFilled = 'true';
+        }
+        // Show green badge
+        badge.textContent = '✅ Auto-detected';
+        badge.style.display = 'inline-block';
+        badge.style.background = '#d1fae5';
+        badge.style.color = '#047857';
+    } else {
+        // Show warning badge
+        badge.textContent = '⚠️ Auto-detect fail — manually likhen';
+        badge.style.display = 'inline-block';
+        badge.style.background = '#fef3c7';
+        badge.style.color = '#92400e';
+    }
+}
+
+// Mark as manually edited if user types in username field
+document.getElementById('profile_username')?.addEventListener('input', function() {
+    this.dataset.autoFilled = 'false';
+});
+
+// Run on page load if link is already filled (edit mode)
+window.addEventListener('DOMContentLoaded', function() {
+    const linkVal = document.getElementById('profile_link')?.value;
+    if (linkVal) {
+        autoFetchUsername();
+    }
+});
 </script>
 {% endblock %}

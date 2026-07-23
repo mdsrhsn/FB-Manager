@@ -2,8 +2,10 @@
 {% block page_title %}{% if bm %}Edit{% else %}Add{% endif %} Business Manager{% endblock %}
 
 {% block content %}
-<div class="card" style="max-width: 700px;">
+<div class="card" style="max-width: 800px;">
     <form method="POST">
+        <h3 style="margin-bottom: 16px; color: #1877F2;">🏢 BM Info</h3>
+
         <div class="form-group">
             <label>BM Name *</label>
             <input type="text" name="bm_name" class="form-control" required value="{{ bm.bm_name if bm else '' }}">
@@ -16,12 +18,12 @@
         </div>
         
         <div class="form-group">
-            <label>Linked FB Account *</label>
+            <label>Linked FB Account * <small style="color:#65676b;">(BM ka owner)</small></label>
             <select name="fb_account_id" class="form-control" required>
                 <option value="">-- Select FB Account --</option>
                 {% for acc in fb_accounts %}
                 <option value="{{ acc.id }}" {% if bm and bm.fb_account_id == acc.id %}selected{% endif %}>
-                    {{ acc.account_name }}
+                    {{ acc.account_name }}{% if acc.location %} — {{ acc.location }}{% endif %}
                 </option>
                 {% endfor %}
             </select>
@@ -35,11 +37,165 @@
                 {% endfor %}
             </select>
         </div>
+
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+
+        {# ============ NEW: BM INVITE TRACKING (Feature 5) ============ #}
+        <h3 style="margin-bottom: 16px; color: #42b72a;">🎁 BM Invite Tracking</h3>
+        <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+            Iss BM ka invite kis Facebook ID ko diya hai? (e.g. USA ki FB ID)
+        </p>
+
+        <div class="form-group">
+            <label>Invite Kis FB ID Ko Diya</label>
+            <select name="invited_to_fb_account_id" class="form-control">
+                <option value="">-- Koi nahi / abhi tak invite nahi diya --</option>
+                {% for acc in fb_accounts %}
+                <option value="{{ acc.id }}" {% if bm and bm.invited_to_fb_account_id == acc.id %}selected{% endif %}>
+                    {{ acc.account_name }}{% if acc.location %} — 🌍 {{ acc.location }}{% endif %}{% if acc.profile_username %} (@{{ acc.profile_username }}){% endif %}
+                </option>
+                {% endfor %}
+            </select>
+            <small style="color: #65676b; font-size: 12px;">
+                Yeh aap ki saved FB IDs mein se select karen. Location bhi dikh rahi hai.
+            </small>
+        </div>
+
+        <div class="form-row">
+            <div class="form-group">
+                <label>Invite Date</label>
+                <input type="date" name="invite_date" class="form-control" 
+                       value="{{ bm.invite_date.strftime('%Y-%m-%d') if bm and bm.invite_date else '' }}">
+            </div>
+            <div class="form-group">
+                <label>Invite Notes</label>
+                <input type="text" name="invite_notes" class="form-control" 
+                       value="{{ bm.invite_notes if bm and bm.invite_notes else '' }}"
+                       placeholder="e.g. Admin access diya">
+            </div>
+        </div>
         
         <div class="flex">
-            <button type="submit" class="btn btn-primary">{% if bm %}Update{% else %}Save{% endif %}</button>
+            <button type="submit" class="btn btn-primary">{% if bm %}Update{% else %}Save & Continue{% endif %}</button>
             <a href="{{ url_for('business_managers') }}" class="btn btn-secondary">Cancel</a>
         </div>
     </form>
 </div>
+
+
+{# ============ NEW: PARTNER ACCESS SECTION (Feature 4) ============ #}
+{# Sirf edit mode mein dikhega - BM save hone ke baad #}
+{% if bm %}
+<div class="card" style="max-width: 800px; margin-top: 20px;">
+    <div class="card-title">🤝 Partner Access ({{ partners|length }})</div>
+    <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+        Iss BM ne kin doosri BMs ko Partner Access diya hai — yahan record karen
+    </p>
+
+    {# Existing partners table #}
+    {% if partners %}
+    <div class="table-wrapper" style="margin-bottom: 20px;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Partner BM Name</th>
+                    <th>Partner BM ID</th>
+                    <th>Access Level</th>
+                    <th>Granted Date</th>
+                    <th>Notes</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in partners %}
+                <tr>
+                    <td class="text-bold">{{ p.partner_bm_name }}</td>
+                    <td><code style="font-size: 11px;">{{ p.partner_bm_id or '-' }}</code></td>
+                    <td>
+                        {% if p.access_level %}
+                            <span style="background: #ede9fe; color: #5b21b6; padding: 2px 8px; border-radius: 10px; font-size: 11px;">
+                                {{ p.access_level }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td>{{ p.access_granted_date.strftime('%d %b %Y') if p.access_granted_date else '-' }}</td>
+                    <td style="font-size: 12px; color: #65676b;">{{ p.notes or '-' }}</td>
+                    <td>
+                        <form method="POST" action="{{ url_for('delete_bm_partner', bm_id=bm.id, partner_id=p.id) }}" 
+                              style="display:inline; margin:0;"
+                              onsubmit="return confirm('Kya aap &quot;{{ p.partner_bm_name|e }}&quot; ka partner access record delete karna chahte hain?');">
+                            <button type="submit" class="btn btn-sm" 
+                                    style="background: #dc2626; color: white; padding: 4px 10px; font-size: 12px;">
+                                🗑️ Remove
+                            </button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="background: #f7f8fa; padding: 16px; border-radius: 6px; margin-bottom: 20px; text-align: center; color: #65676b; font-size: 14px;">
+        Abhi tak koi partner access record nahi hai
+    </div>
+    {% endif %}
+
+    {# Add new partner form #}
+    <div style="background: #f7f8fa; padding: 16px; border-radius: 6px;">
+        <h4 style="margin-bottom: 12px; color: #7F77DD;">➕ Naya Partner Access Add Karen</h4>
+        <form method="POST" action="{{ url_for('add_bm_partner', bm_id=bm.id) }}">
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Partner BM Name *</label>
+                    <input type="text" name="partner_bm_name" class="form-control" required 
+                           placeholder="e.g. Client XYZ BM">
+                </div>
+                <div class="form-group">
+                    <label>Partner BM ID</label>
+                    <input type="text" name="partner_bm_id" class="form-control" 
+                           placeholder="e.g. 987654321098765">
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Access Level</label>
+                    <select name="access_level" class="form-control">
+                        <option value="">-- Select --</option>
+                        <option value="Full Access">Full Access</option>
+                        <option value="Ads Manager">Ads Manager</option>
+                        <option value="Page Access">Page Access</option>
+                        <option value="Analytics Only">Analytics Only</option>
+                        <option value="Catalog Access">Catalog Access</option>
+                        <option value="Pixel Access">Pixel Access</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Access Granted Date</label>
+                    <input type="date" name="access_granted_date" class="form-control">
+                </div>
+            </div>
+
+            <div class="form-group">
+                <label>Notes</label>
+                <input type="text" name="partner_notes" class="form-control" 
+                       placeholder="Koi extra tafseel...">
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-sm">➕ Add Partner Access</button>
+        </form>
+    </div>
+</div>
+{% else %}
+<div class="card" style="max-width: 800px; margin-top: 20px; background: #fff3cd;">
+    <p style="margin: 0; font-size: 14px; color: #92400e;">
+        💡 <strong>Note:</strong> Partner Access records BM save hone ke baad add kar sakte hain.
+        Pehle upar wala form save karen.
+    </p>
+</div>
+{% endif %}
 {% endblock %}
