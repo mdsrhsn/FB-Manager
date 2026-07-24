@@ -1483,8 +1483,17 @@ def add_business_manager():
         )
         db.session.add(bm)
         db.session.commit()
-        log_activity('create', 'Business Manager', bm.bm_name)
-        flash('Business Manager add ho gaya. Ab Partner Access add kar sakte hain (Edit button se).', 'success')
+
+        # Add form par likhe hue email invites bhi save karen
+        invite_count = _save_invite_emails(bm, request.form)
+
+        log_activity('create', 'Business Manager', bm.bm_name,
+                     f'{invite_count} email invite(s)' if invite_count else None)
+        msg = 'Business Manager add ho gaya.'
+        if invite_count:
+            msg += f' {invite_count} email invite bhi save ho gaye.'
+        msg += ' Ab Partner Access add kar sakte hain.'
+        flash(msg, 'success')
         return redirect(url_for('edit_business_manager', bm_id=bm.id))
 
     fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
@@ -1609,6 +1618,50 @@ def delete_bm_partner(bm_id, partner_id):
     return redirect(url_for('edit_business_manager', bm_id=bm_id))
 
 
+def _save_invite_emails(bm, form, default_status='pending'):
+    """
+    Form ke 'invite_emails' field se emails nikal kar BM ke sath save karta hai.
+    Comma / nayi line / semicolon / space — kisi se bhi alag kiye ja sakte hain.
+    Duplicate emails skip ho jate hain. Kitne add hue woh return karta hai.
+    """
+    emails_raw = form.get('invite_emails') or ''
+    parts = [e.strip() for e in
+             emails_raw.replace('\n', ',').replace(';', ',').replace(' ', ',').split(',')]
+    emails = [e for e in parts if e and '@' in e]
+    if not emails:
+        return 0
+
+    invited_date = _parse_date(form.get('invite_sent_date'))
+    notes = form.get('invite_email_notes') or None
+    acc_id = form.get('invite_fb_account_id')
+    status = form.get('invite_status', default_status)
+    if status not in ('pending', 'accepted', 'expired'):
+        status = default_status
+
+    added = 0
+    for email in emails:
+        exists = BMInvite.query.filter(
+            BMInvite.bm_id == bm.id,
+            func.lower(BMInvite.email) == email.lower()
+        ).first()
+        if exists:
+            continue
+        db.session.add(BMInvite(
+            bm_id=bm.id,
+            email=email,
+            status=status,
+            invited_date=invited_date,
+            accepted_date=date.today() if status == 'accepted' else None,
+            fb_account_id=int(acc_id) if acc_id else None,
+            notes=notes
+        ))
+        added += 1
+
+    if added:
+        db.session.commit()
+    return added
+
+
 # ==================== BM EMAIL INVITES (pending / accepted) ====================
 @app.route('/business-managers/<int:bm_id>/invites/add', methods=['POST'])
 @login_required
@@ -1619,46 +1672,18 @@ def add_bm_invite(bm_id):
     if not can_access(bm):
         return deny_access()
 
-    emails_raw = request.form.get('invite_emails') or ''
-    # Ek se zyada email comma / newline / space se alag kar sakte hain
-    parts = [e.strip() for e in emails_raw.replace('\n', ',').replace(';', ',').replace(' ', ',').split(',')]
-    emails = [e for e in parts if e and '@' in e]
-
-    if not emails:
+    raw = request.form.get('invite_emails') or ''
+    if '@' not in raw:
         flash('Kam az kam ek sahi email likhen', 'error')
         return redirect(url_for('edit_business_manager', bm_id=bm.id))
 
-    invited_date = _parse_date(request.form.get('invite_sent_date'))
-    notes = request.form.get('invite_email_notes') or None
-    acc_id = request.form.get('invite_fb_account_id')
+    added = _save_invite_emails(bm, request.form)
 
-    added, skipped = 0, 0
-    for email in emails:
-        exists = BMInvite.query.filter(
-            BMInvite.bm_id == bm.id,
-            func.lower(BMInvite.email) == email.lower()
-        ).first()
-        if exists:
-            skipped += 1
-            continue
-        db.session.add(BMInvite(
-            bm_id=bm.id,
-            email=email,
-            status=request.form.get('invite_status', 'pending'),
-            invited_date=invited_date,
-            fb_account_id=int(acc_id) if acc_id else None,
-            notes=notes
-        ))
-        added += 1
-
-    db.session.commit()
     if added:
-        log_activity('create', 'BM Invite', bm.bm_name,
-                     f'{added} email invite(s): {", ".join(emails[:3])}')
-    msg = f'{added} email invite add ho gaye'
-    if skipped:
-        msg += f' | {skipped} pehle se mojood the'
-    flash(msg, 'success' if added else 'warning')
+        log_activity('create', 'BM Invite', bm.bm_name, f'{added} email invite(s)')
+        flash(f'{added} email invite add ho gaye', 'success')
+    else:
+        flash('Yeh email(s) pehle se mojood hain', 'warning')
     return redirect(url_for('edit_business_manager', bm_id=bm.id))
 
 

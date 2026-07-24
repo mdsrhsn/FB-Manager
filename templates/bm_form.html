@@ -110,16 +110,56 @@ attachDupCheck('bm', {'bm_name_f': 'bm_name', 'bm_id_f': 'bm_id'},
         <div class="form-row">
             <div class="form-group">
                 <label>Invite Date</label>
-                <input type="date" name="invite_date" class="form-control" 
+                <input type="date" name="invite_date" class="form-control"
                        value="{{ bm.invite_date.strftime('%Y-%m-%d') if bm and bm.invite_date else '' }}">
             </div>
             <div class="form-group">
                 <label>Invite Notes</label>
-                <input type="text" name="invite_notes" class="form-control" 
+                <input type="text" name="invite_notes" class="form-control"
                        value="{{ bm.invite_notes if bm and bm.invite_notes else '' }}"
                        placeholder="e.g. Admin access diya">
             </div>
         </div>
+
+        {# ============ EMAIL INVITES — add form par bhi ============ #}
+        {% if not bm %}
+        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:14px;margin-top:6px;">
+            <label style="display:block;margin-bottom:6px;font-weight:600;color:#166534;">
+                📧 Invite Kin Emails Par Bheja Hai? <span style="font-weight:400;color:#65676b;font-size:12px;">(optional)</span>
+            </label>
+            <p style="color:#65676b;font-size:12.5px;margin:0 0 10px;">
+                Jo invite bheje gaye lekin abhi <strong>accept nahi hue</strong> — unki emails yahan likhen.
+                Ek se zyada emails comma ya nayi line se alag karen.
+            </p>
+            <textarea name="invite_emails" class="form-control" rows="2"
+                      placeholder="pehla@gmail.com, doosra@gmail.com"></textarea>
+
+            <div class="form-row" style="margin-top:10px;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Invite Bhejne Ki Date</label>
+                    <input type="date" name="invite_sent_date" class="form-control">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Status</label>
+                    <select name="invite_status" class="form-control">
+                        <option value="pending">⏳ Pending — abhi accept nahi hua</option>
+                        <option value="accepted">✅ Accepted</option>
+                        <option value="expired">⛔ Expired</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-group" style="margin-top:10px;margin-bottom:0;">
+                <label>Notes (in emails ke liye)</label>
+                <input type="text" name="invite_email_notes" class="form-control"
+                       placeholder="e.g. Admin access ka invite bheja">
+            </div>
+
+            <div style="font-size:11.5px;color:#166534;margin-top:8px;">
+                💡 Save karne ke baad Edit page par aur emails add kar sakte hain, status badal sakte hain.
+            </div>
+        </div>
+        {% endif %}
         
 
         {% if can('view_all_data') and team_users %}
@@ -412,8 +452,8 @@ attachDupCheck('bm', {'bm_name_f': 'bm_name', 'bm_id_f': 'bm_id'},
 {% else %}
 <div class="card" style="max-width: 800px; margin-top: 20px; background: #fff3cd;">
     <p style="margin: 0; font-size: 14px; color: #92400e;">
-        💡 <strong>Note:</strong> Partner Access records BM save hone ke baad add kar sakte hain.
-        Pehle upar wala form save karen.
+        💡 <strong>Note:</strong> Partner Access records aur mazeed email invites BM save hone ke baad
+        add kar sakte hain. Pehle upar wala form save karen — email invites upar hi likh sakte hain.
     </p>
 </div>
 {% endif %}
