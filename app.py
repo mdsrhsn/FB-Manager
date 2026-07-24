@@ -17,7 +17,7 @@ from sqlalchemy import func, extract, or_
 
 from models import (
     db, User, FBAccount, BusinessManager, BMPartnerAccess,
-    Page, Group, DailyReport, TeamPayment, ActivityLog, init_db
+    Page, Group, GroupAccount, BMInvite, DailyReport, TeamPayment, ActivityLog, init_db
 )
 
 # ==================== APP CONFIG ====================
@@ -165,6 +165,12 @@ def scope_records(query, model, assigned_field='assigned_user_id'):
             conditions.append(Group.page_id.in_(page_ids))
         if account_ids:
             conditions.append(Group.fb_account_id.in_(account_ids))
+            # extra IDs ke zariye bhi
+            linked = db.session.query(GroupAccount.group_id).filter(
+                GroupAccount.fb_account_id.in_(account_ids)).all()
+            extra_group_ids = {g[0] for g in linked}
+            if extra_group_ids:
+                conditions.append(Group.id.in_(extra_group_ids))
 
     if not conditions:
         return query.filter(False)
@@ -1483,7 +1489,7 @@ def add_business_manager():
 
     fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
     return render_template('bm_form.html', bm=None, fb_accounts=fb_accounts_list, partners=[],
-                           team_users=assignable_users())
+                           invites=[], team_users=assignable_users())
 
 
 @app.route('/business-managers/<int:bm_id>/edit', methods=['GET', 'POST'])
@@ -1522,8 +1528,9 @@ def edit_business_manager(bm_id):
     partners = BMPartnerAccess.query.filter_by(source_bm_id=bm.id).order_by(
         BMPartnerAccess.created_at.desc()
     ).all()
+    invites = BMInvite.query.filter_by(bm_id=bm.id).order_by(BMInvite.created_at.desc()).all()
     return render_template('bm_form.html', bm=bm, fb_accounts=fb_accounts_list, partners=partners,
-                           team_users=assignable_users())
+                           invites=invites, team_users=assignable_users())
 
 
 @app.route('/business-managers/<int:bm_id>/delete', methods=['POST'])
@@ -1602,6 +1609,103 @@ def delete_bm_partner(bm_id, partner_id):
     return redirect(url_for('edit_business_manager', bm_id=bm_id))
 
 
+# ==================== BM EMAIL INVITES (pending / accepted) ====================
+@app.route('/business-managers/<int:bm_id>/invites/add', methods=['POST'])
+@login_required
+@permission_required('add_edit')
+def add_bm_invite(bm_id):
+    """BM ka invite kis email par bheja — jitne chahen email add karen"""
+    bm = BusinessManager.query.get_or_404(bm_id)
+    if not can_access(bm):
+        return deny_access()
+
+    emails_raw = request.form.get('invite_emails') or ''
+    # Ek se zyada email comma / newline / space se alag kar sakte hain
+    parts = [e.strip() for e in emails_raw.replace('\n', ',').replace(';', ',').replace(' ', ',').split(',')]
+    emails = [e for e in parts if e and '@' in e]
+
+    if not emails:
+        flash('Kam az kam ek sahi email likhen', 'error')
+        return redirect(url_for('edit_business_manager', bm_id=bm.id))
+
+    invited_date = _parse_date(request.form.get('invite_sent_date'))
+    notes = request.form.get('invite_email_notes') or None
+    acc_id = request.form.get('invite_fb_account_id')
+
+    added, skipped = 0, 0
+    for email in emails:
+        exists = BMInvite.query.filter(
+            BMInvite.bm_id == bm.id,
+            func.lower(BMInvite.email) == email.lower()
+        ).first()
+        if exists:
+            skipped += 1
+            continue
+        db.session.add(BMInvite(
+            bm_id=bm.id,
+            email=email,
+            status=request.form.get('invite_status', 'pending'),
+            invited_date=invited_date,
+            fb_account_id=int(acc_id) if acc_id else None,
+            notes=notes
+        ))
+        added += 1
+
+    db.session.commit()
+    if added:
+        log_activity('create', 'BM Invite', bm.bm_name,
+                     f'{added} email invite(s): {", ".join(emails[:3])}')
+    msg = f'{added} email invite add ho gaye'
+    if skipped:
+        msg += f' | {skipped} pehle se mojood the'
+    flash(msg, 'success' if added else 'warning')
+    return redirect(url_for('edit_business_manager', bm_id=bm.id))
+
+
+@app.route('/business-managers/<int:bm_id>/invites/<int:invite_id>/status', methods=['POST'])
+@login_required
+@permission_required('add_edit')
+def update_bm_invite_status(bm_id, invite_id):
+    """Invite ka status badlen — pending / accepted / expired"""
+    invite = BMInvite.query.get_or_404(invite_id)
+    if invite.bm_id != bm_id:
+        flash('Galat request', 'error')
+        return redirect(url_for('business_managers'))
+
+    new_status = request.form.get('status', 'pending')
+    if new_status not in ('pending', 'accepted', 'expired'):
+        new_status = 'pending'
+
+    invite.status = new_status
+    invite.accepted_date = date.today() if new_status == 'accepted' else None
+
+    acc_id = request.form.get('fb_account_id')
+    if acc_id:
+        invite.fb_account_id = int(acc_id)
+
+    db.session.commit()
+    log_activity('update', 'BM Invite', invite.email, f'Status: {new_status}')
+    flash(f'Invite status update ho gaya: {new_status}', 'success')
+    return redirect(url_for('edit_business_manager', bm_id=bm_id))
+
+
+@app.route('/business-managers/<int:bm_id>/invites/<int:invite_id>/delete', methods=['POST'])
+@login_required
+@permission_required('delete')
+def delete_bm_invite(bm_id, invite_id):
+    invite = BMInvite.query.get_or_404(invite_id)
+    if invite.bm_id != bm_id:
+        flash('Galat request', 'error')
+        return redirect(url_for('business_managers'))
+
+    email = invite.email
+    db.session.delete(invite)
+    db.session.commit()
+    log_activity('delete', 'BM Invite', email)
+    flash(f'Invite "{email}" delete ho gaya', 'success')
+    return redirect(url_for('edit_business_manager', bm_id=bm_id))
+
+
 # ==================== BUSINESS MANAGERS - EXCEL ====================
 @app.route('/business-managers/export')
 @login_required
@@ -1614,7 +1718,8 @@ def export_business_managers():
 
     headers = [
         'BM Name', 'BM ID Number', 'Linked FB Account', 'Status', 'Pages Count',
-        'Invited To FB Account', 'Invite Date', 'Invite Notes', 'Partner Access Count'
+        'Invited To FB Account', 'Invite Date', 'Invite Notes', 'Partner Access Count',
+        'Pending Invite Emails', 'Accepted Invite Emails'
     ]
     _style_header(ws, headers, '7F77DD')
 
@@ -1622,6 +1727,8 @@ def export_business_managers():
     for bm in bms:
         pages_count = Page.query.filter_by(bm_id=bm.id, is_active=True).count()
         partner_count = BMPartnerAccess.query.filter_by(source_bm_id=bm.id).count()
+        pending = [i.email for i in bm.email_invites if (i.status or 'pending') == 'pending']
+        accepted = [i.email for i in bm.email_invites if i.status == 'accepted']
         ws.append([
             bm.bm_name,
             bm.bm_id or '',
@@ -1631,10 +1738,12 @@ def export_business_managers():
             bm.invited_fb_account.account_name if bm.invited_fb_account else '',
             bm.invite_date.strftime('%Y-%m-%d') if bm.invite_date else '',
             bm.invite_notes or '',
-            partner_count
+            partner_count,
+            ', '.join(pending),
+            ', '.join(accepted)
         ])
 
-    for i, w in enumerate([25, 25, 25, 15, 15, 25, 14, 30, 18], 1):
+    for i, w in enumerate([25, 25, 25, 15, 15, 25, 14, 30, 18, 40, 40], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     return _excel_response(wb, f"business_managers_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
@@ -2022,6 +2131,37 @@ def delete_page(page_id):
     return redirect(url_for('pages'))
 
 
+def _save_group_extra_accounts(group, form):
+    """
+    Group ke extra FB IDs (checkbox list) save karta hai.
+    Main ID alag hai — usay repeat nahi karte.
+    """
+    selected = set()
+    for raw in form.getlist('extra_account_ids'):
+        try:
+            val = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if group.fb_account_id and val == group.fb_account_id:
+            continue  # main ID dobara nahi
+        selected.add(val)
+
+    existing = {ga.fb_account_id: ga for ga in
+                GroupAccount.query.filter_by(group_id=group.id).all()}
+
+    # jo hata diye gaye
+    for acc_id, ga in existing.items():
+        if acc_id not in selected:
+            db.session.delete(ga)
+
+    # naye add karen
+    for acc_id in selected:
+        if acc_id not in existing:
+            db.session.add(GroupAccount(group_id=group.id, fb_account_id=acc_id))
+
+    db.session.commit()
+
+
 # ==================== GROUPS (V2 NEW - Feature 7) ====================
 @app.route('/groups')
 @login_required
@@ -2060,7 +2200,12 @@ def add_group():
         )
         db.session.add(group)
         db.session.commit()
-        log_activity('create', 'Group', group.group_name)
+
+        # Extra IDs (jin mein yeh group bhi admin hai)
+        _save_group_extra_accounts(group, request.form)
+
+        log_activity('create', 'Group', group.group_name,
+                     f'{len(group.all_account_ids)} FB ID(s) linked')
         flash('Group add ho gaya', 'success')
         return redirect(url_for('groups'))
 
@@ -2068,7 +2213,8 @@ def add_group():
     pages_list = scope_records(Page.query.filter_by(is_active=True), Page,
                                assigned_field='assigned_worker_id').order_by(Page.page_name).all()
     return render_template('group_form.html', group=None, fb_accounts=fb_accounts_list,
-                           pages=pages_list, team_users=assignable_users())
+                           pages=pages_list, team_users=assignable_users(),
+                           extra_selected=set())
 
 
 @app.route('/groups/<int:group_id>/edit', methods=['GET', 'POST'])
@@ -2098,16 +2244,21 @@ def edit_group(group_id):
         group.status = request.form.get('status', 'active')
         group.notes = request.form.get('notes') or None
 
+        _save_group_extra_accounts(group, request.form)
+
         db.session.commit()
-        log_activity('update', 'Group', group.group_name)
+        log_activity('update', 'Group', group.group_name,
+                     f'{len(group.all_account_ids)} FB ID(s) linked')
         flash('Group update ho gaya', 'success')
         return redirect(url_for('groups'))
 
     fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
     pages_list = scope_records(Page.query.filter_by(is_active=True), Page,
                                assigned_field='assigned_worker_id').order_by(Page.page_name).all()
+    extra_selected = {ga.fb_account_id for ga in group.extra_accounts}
     return render_template('group_form.html', group=group, fb_accounts=fb_accounts_list,
-                           pages=pages_list, team_users=assignable_users())
+                           pages=pages_list, team_users=assignable_users(),
+                           extra_selected=extra_selected)
 
 
 @app.route('/groups/<int:group_id>/delete', methods=['POST'])
@@ -2138,23 +2289,26 @@ def export_groups():
 
     headers = [
         'Group Name', 'Group URL', 'Group FB ID', 'Linked Page',
-        'Linked FB Account', 'Members', 'Status', 'Notes'
+        'Main FB Account', 'Extra FB IDs (admin)', 'Total IDs', 'Members', 'Status', 'Notes'
     ]
     _style_header(ws, headers, '0ea5e9')
 
     for g in Group.query.all():
+        extras = ', '.join(ga.fb_account.account_name for ga in g.extra_accounts if ga.fb_account)
         ws.append([
             g.group_name or '',
             g.group_url or '',
             g.group_fb_id or '',
             g.page.page_name if g.page else '',
             g.fb_account.account_name if g.fb_account else '',
+            extras,
+            len(g.all_account_ids),
             g.members_count or 0,
             g.status or 'active',
             g.notes or ''
         ])
 
-    for i, w in enumerate([28, 35, 20, 25, 22, 14, 14, 30], 1):
+    for i, w in enumerate([28, 35, 20, 25, 22, 40, 12, 14, 14, 30], 1):
         ws.column_dimensions[chr(64+i)].width = w
 
     return _excel_response(wb, f"groups_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx")
@@ -2714,7 +2868,12 @@ def export_master():
                 f"{pa.partner_bm_name}({pa.partner_bm_id or 'no-id'})" for pa in bm.partner_accesses
             )
         page_groups = [g for g in all_groups if g.page_id == p.id]
-        group_txt = ', '.join(f"{g.group_name} ({g.members_count or 0:,})" for g in page_groups)
+        group_txt = ', '.join(
+            f"{g.group_name} ({g.members_count or 0:,}"
+            + (f", {len(g.all_account_ids)} IDs" if len(g.all_account_ids) > 1 else "") + ")"
+            for g in page_groups
+        )
+        pending_emails = ', '.join(i.email for i in bm.pending_invites) if bm else ''
 
         master_rows.append([
             p.page_name, p.page_url or '', p.niche or '',
@@ -2730,6 +2889,7 @@ def export_master():
             # BM
             bm.bm_name if bm else '', bm.bm_id if bm else '',
             bm.invited_fb_account.account_name if (bm and bm.invited_fb_account) else '',
+            pending_emails,
             len(bm.partner_accesses) if bm else 0, partner_names,
             # worker + groups
             p.assigned_worker.full_name if p.assigned_worker else '',
@@ -2743,11 +2903,12 @@ def export_master():
         'Page Name', 'Page URL', 'Niche', 'Page Status', 'Recommendation', 'Monetization',
         'Fresh Start', 'Followers At Start', 'Current Followers',
         'FB ID Name', 'FB Email', 'FB Location', 'FB Username', 'FB Issue', 'FB Status',
-        'BM Name', 'BM ID', 'BM Invited To (FB ID)', 'Partner Access Count', 'Partner BMs',
+        'BM Name', 'BM ID', 'BM Invited To (FB ID)', 'BM Pending Invite Emails',
+        'Partner Access Count', 'Partner BMs',
         'Assigned Worker', 'Groups Count', 'Linked Groups', 'Page Created', 'Monetized Date', 'Notes'
     ], master_rows,
         [26, 32, 14, 14, 16, 16, 12, 16, 16, 22, 24, 14, 20, 16, 12,
-         22, 20, 22, 16, 40, 20, 12, 40, 14, 14, 30], '1877F2')
+         22, 20, 22, 34, 16, 40, 20, 12, 40, 14, 14, 30], '1877F2')
 
     # ---------- SHEET 3: FB ACCOUNTS ----------
     add_sheet("FB Accounts", [
@@ -2811,15 +2972,41 @@ def export_master():
         [26, 32, 14, 22, 20, 18, 16, 14, 26, 16, 26, 12, 15, 16, 14, 14, 28], '42b72a')
 
     # ---------- SHEET 7: GROUPS ----------
+    def _group_all_ids(g):
+        names = []
+        if g.fb_account:
+            names.append(g.fb_account.account_name + ' (main)')
+        for ga in g.extra_accounts:
+            if ga.fb_account:
+                names.append(ga.fb_account.account_name)
+        return ', '.join(names)
+
     add_sheet("Groups", [
-        'Group Name', 'Group URL', 'Group FB ID', 'Linked Page', 'Linked FB ID',
-        'Members', 'Status', 'Notes'
+        'Group Name', 'Group URL', 'Group FB ID', 'Linked Page', 'Main FB ID',
+        'Total FB IDs', 'All FB IDs (admin)', 'Members', 'Status', 'Notes'
     ], [[
         g.group_name or '', g.group_url or '', g.group_fb_id or '',
         g.page.page_name if g.page else '', g.fb_account.account_name if g.fb_account else '',
+        len(g.all_account_ids), _group_all_ids(g),
         g.members_count or 0, g.status or 'active', g.notes or ''
     ] for g in all_groups],
-        [28, 34, 20, 24, 22, 14, 12, 30], '0ea5e9')
+        [28, 34, 20, 24, 22, 12, 45, 14, 12, 30], '0ea5e9')
+
+    # ---------- SHEET: BM EMAIL INVITES ----------
+    all_invites = BMInvite.query.all()
+    add_sheet("BM Email Invites", [
+        'BM Name', 'BM ID', 'Invite Email', 'Status', 'Invited Date', 'Accepted Date',
+        'Linked FB ID', 'Notes'
+    ], [[
+        inv.business_manager.bm_name if inv.business_manager else '',
+        inv.business_manager.bm_id if inv.business_manager else '',
+        inv.email or '', (inv.status or 'pending').title(),
+        inv.invited_date.strftime('%Y-%m-%d') if inv.invited_date else '',
+        inv.accepted_date.strftime('%Y-%m-%d') if inv.accepted_date else '',
+        inv.fb_account.account_name if inv.fb_account else '',
+        inv.notes or ''
+    ] for inv in all_invites],
+        [24, 20, 34, 14, 14, 14, 22, 30], '16a34a')
 
     # ---------- SHEET 8: TEAM ----------
     add_sheet("Team", [

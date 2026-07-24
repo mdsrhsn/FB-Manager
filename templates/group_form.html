@@ -45,6 +45,36 @@ function attachDupCheck(kind, fieldMap, excludeId) {
 attachDupCheck('group', {'g_name_f': 'group_name', 'g_url_f': 'group_url', 'g_fbid_f': 'group_fb_id'},
                {% if group %}{{ group.id }}{% else %}null{% endif %});
 </script>
+
+<script>
+function filterExtraIds() {
+    var q = document.getElementById('extra-search').value.toLowerCase().trim();
+    var items = document.querySelectorAll('.extra-item');
+    var shown = 0;
+    items.forEach(function (el) {
+        var match = !q || (el.dataset.name || '').includes(q);
+        el.style.display = match ? 'flex' : 'none';
+        if (match) shown++;
+    });
+    updateExtraCount();
+}
+
+function updateExtraCount() {
+    var checked = document.querySelectorAll('input[name="extra_account_ids"]:checked').length;
+    var el = document.getElementById('extra-count');
+    if (el) {
+        el.textContent = checked > 0
+            ? '✅ ' + checked + ' extra ID' + (checked > 1 ? 's' : '') + ' select ki gayi'
+            : 'Koi extra ID select nahi ki';
+        el.style.color = checked > 0 ? '#047857' : '#65676b';
+    }
+}
+
+document.querySelectorAll('input[name="extra_account_ids"]').forEach(function (cb) {
+    cb.addEventListener('change', updateExtraCount);
+});
+window.addEventListener('DOMContentLoaded', updateExtraCount);
+</script>
 {% endblock %}
 
 {% block content %}
@@ -104,6 +134,33 @@ attachDupCheck('group', {'g_name_f': 'group_name', 'g_url_f': 'group_url', 'g_fb
                     {% endfor %}
                 </select>
             </div>
+        </div>
+
+        {# ============ EXTRA FB IDs — group kai IDs mein admin ho sakta hai ============ #}
+        <div class="form-group">
+            <label>➕ Aur Kaun Si IDs Iss Group Mein Admin Hain? <span style="color:#65676b;font-size:12px;">(optional)</span></label>
+            <div style="background:#f7f8fa;border:1px solid #e4e6eb;border-radius:8px;padding:12px;">
+                <input type="text" id="extra-search" placeholder="🔍 ID ka naam likh kar dhoondein..."
+                       style="width:100%;padding:7px 10px;border:1px solid #d0d3d8;border-radius:6px;font-size:13px;margin-bottom:10px;"
+                       oninput="filterExtraIds()">
+                <div id="extra-list" style="max-height:200px;overflow-y:auto;display:grid;
+                     grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:6px;">
+                    {% for a in fb_accounts %}
+                    <label class="extra-item" data-name="{{ (a.account_name ~ ' ' ~ (a.location or ''))|lower }}"
+                           style="display:flex;align-items:center;gap:8px;background:#fff;padding:8px 10px;
+                                  border:1px solid #e4e6eb;border-radius:6px;cursor:pointer;font-size:13px;">
+                        <input type="checkbox" name="extra_account_ids" value="{{ a.id }}"
+                               {% if a.id in extra_selected %}checked{% endif %}
+                               style="width:16px;height:16px;cursor:pointer;flex-shrink:0;">
+                        <span>{{ a.account_name }}{% if a.location %} <span style="color:#65676b;font-size:11px;">— {{ a.location }}</span>{% endif %}</span>
+                    </label>
+                    {% endfor %}
+                </div>
+                <div id="extra-count" style="font-size:12px;color:#65676b;margin-top:8px;"></div>
+            </div>
+            <small style="color:#65676b;font-size:12px;">
+                Main ID upar select ki hai. Agar yeh group aur IDs se bhi manage hota hai to yahan tick karen.
+            </small>
         </div>
 
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">

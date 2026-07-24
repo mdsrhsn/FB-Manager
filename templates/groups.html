@@ -103,6 +103,20 @@
                         {% else %}
                             <span class="text-muted" style="font-size: 12px;">-</span>
                         {% endif %}
+                        {% set extra_n = g.extra_accounts|length %}
+                        {% if extra_n > 0 %}
+                        <div style="margin-top:4px;">
+                            <span style="background:#ede9fe;color:#5b21b6;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;"
+                                  title="{% for ga in g.extra_accounts %}{{ ga.fb_account.account_name if ga.fb_account else '' }}{% if not loop.last %}, {% endif %}{% endfor %}">
+                                +{{ extra_n }} aur ID{% if extra_n > 1 %}s{% endif %}
+                            </span>
+                            <div style="font-size:10.5px;color:#65676b;margin-top:2px;line-height:1.4;">
+                                {% for ga in g.extra_accounts[:2] %}
+                                    {{ ga.fb_account.account_name if ga.fb_account else '' }}{% if not loop.last %}, {% endif %}
+                                {% endfor %}{% if extra_n > 2 %} +{{ extra_n - 2 }}{% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
                     </td>
                     <td class="text-bold">{{ "{:,}".format(g.members_count or 0) }}</td>
                     <td><span class="status-badge status-{{ g.status }}">{{ g.status }}</span></td>

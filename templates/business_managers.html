@@ -110,6 +110,20 @@
                         {% else %}
                             <span class="text-muted" style="font-size: 12px;">-</span>
                         {% endif %}
+
+                        {% set pending = bm.pending_invites %}
+                        {% if pending %}
+                        <div style="margin-top:5px;">
+                            <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;"
+                                  title="{% for i in pending %}{{ i.email }}{% if not loop.last %}, {% endif %}{% endfor %}">
+                                ⏳ {{ pending|length }} email pending
+                            </span>
+                            <div style="font-size:10.5px;color:#65676b;margin-top:2px;line-height:1.4;">
+                                {% for i in pending[:2] %}{{ i.email }}{% if not loop.last %}<br>{% endif %}{% endfor %}
+                                {% if pending|length > 2 %}<br>+{{ pending|length - 2 }} aur{% endif %}
+                            </div>
+                        </div>
+                        {% endif %}
                     </td>
 
                     <td>{{ bm.fb_account.pages|length if bm.fb_account else 0 }}</td>

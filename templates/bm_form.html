@@ -149,6 +149,159 @@ attachDupCheck('bm', {'bm_name_f': 'bm_name', 'bm_id_f': 'bm_id'},
 </div>
 
 
+{# ============ EMAIL INVITES — pending / accepted ============ #}
+{% if bm %}
+<div class="card" style="max-width: 800px; margin-top: 20px;">
+    <div class="card-title">
+        📧 Email Invites ({{ invites|length }})
+        {% set pending_n = invites|selectattr('status', 'equalto', 'pending')|list|length %}
+        {% if pending_n %}
+        <span style="background:#fef3c7;color:#92400e;padding:2px 10px;border-radius:12px;font-size:12px;margin-left:6px;">
+            ⏳ {{ pending_n }} pending
+        </span>
+        {% endif %}
+    </div>
+    <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
+        Iss BM ka invite kin emails par bheja gaya hai — jo abhi accept nahi hue woh
+        <strong>pending</strong> rehte hain. Ek se zyada email ek sath bhi likh sakte hain.
+    </p>
+
+    {% if invites %}
+    <div class="table-wrapper" style="margin-bottom: 20px;">
+        <table>
+            <thead>
+                <tr>
+                    <th>Email</th>
+                    <th>Status</th>
+                    <th>Invited</th>
+                    <th>Linked FB ID</th>
+                    <th>Notes</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for inv in invites %}
+                <tr style="{% if (inv.status or 'pending') == 'pending' %}background:#fffbeb;{% endif %}">
+                    <td class="text-bold" style="font-size:13px;">{{ inv.email }}</td>
+                    <td>
+                        {% if inv.status == 'accepted' %}
+                            <span style="background:#d1fae5;color:#047857;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:600;">
+                                ✅ Accepted
+                            </span>
+                            {% if inv.accepted_date %}
+                            <div style="font-size:10.5px;color:#65676b;">{{ inv.accepted_date.strftime('%d %b %Y') }}</div>
+                            {% endif %}
+                        {% elif inv.status == 'expired' %}
+                            <span style="background:#f3f4f6;color:#6b7280;padding:3px 10px;border-radius:12px;font-size:11.5px;">
+                                ⛔ Expired
+                            </span>
+                        {% else %}
+                            <span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:12px;font-size:11.5px;font-weight:600;">
+                                ⏳ Pending
+                            </span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size:12px;color:#65676b;">
+                        {{ inv.invited_date.strftime('%d %b %Y') if inv.invited_date else '-' }}
+                    </td>
+                    <td style="font-size:12px;">
+                        {% if inv.fb_account %}
+                            <span style="background:#dbeafe;color:#1e40af;padding:2px 8px;border-radius:10px;font-size:11px;">
+                                {{ inv.fb_account.account_name }}
+                            </span>
+                        {% else %}
+                            <span class="text-muted">-</span>
+                        {% endif %}
+                    </td>
+                    <td style="font-size:12px;color:#65676b;">{{ inv.notes or '-' }}</td>
+                    <td>
+                        <div style="display:flex;gap:4px;flex-wrap:wrap;">
+                            {% if (inv.status or 'pending') != 'accepted' %}
+                            <form method="POST" action="{{ url_for('update_bm_invite_status', bm_id=bm.id, invite_id=inv.id) }}" style="display:inline;margin:0;">
+                                <input type="hidden" name="status" value="accepted">
+                                <button type="submit" class="btn btn-sm" style="background:#10b981;color:#fff;padding:4px 8px;font-size:11px;">
+                                    ✅ Accepted
+                                </button>
+                            </form>
+                            {% else %}
+                            <form method="POST" action="{{ url_for('update_bm_invite_status', bm_id=bm.id, invite_id=inv.id) }}" style="display:inline;margin:0;">
+                                <input type="hidden" name="status" value="pending">
+                                <button type="submit" class="btn btn-sm btn-secondary" style="padding:4px 8px;font-size:11px;">
+                                    ⏳ Pending
+                                </button>
+                            </form>
+                            {% endif %}
+                            {% if can('delete') %}
+                            <form method="POST" action="{{ url_for('delete_bm_invite', bm_id=bm.id, invite_id=inv.id) }}"
+                                  style="display:inline;margin:0;"
+                                  onsubmit="return confirm('Invite &quot;{{ inv.email|e }}&quot; delete karen?');">
+                                <button type="submit" class="btn btn-sm" style="background:#dc2626;color:#fff;padding:4px 8px;font-size:11px;">
+                                    🗑️
+                                </button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% else %}
+    <div style="background:#f7f8fa;padding:16px;border-radius:6px;margin-bottom:20px;text-align:center;color:#65676b;font-size:14px;">
+        Abhi tak koi email invite record nahi kiya
+    </div>
+    {% endif %}
+
+    <div style="background: #f7f8fa; padding: 16px; border-radius: 6px;">
+        <h4 style="margin-bottom: 12px; color: #16a34a;">➕ Naye Email Invites Add Karen</h4>
+        <form method="POST" action="{{ url_for('add_bm_invite', bm_id=bm.id) }}">
+            <div class="form-group">
+                <label>Email Address(es) *</label>
+                <textarea name="invite_emails" class="form-control" rows="2" required
+                          placeholder="ek@gmail.com, doosra@gmail.com&#10;(comma ya nayi line se alag karen — jitne chahen)"></textarea>
+                <small style="color:#65676b;font-size:12px;">
+                    Ek se zyada email comma ya nayi line se alag karen — sab ek sath add ho jayen ge
+                </small>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Invite Bhejne Ki Date</label>
+                    <input type="date" name="invite_sent_date" class="form-control">
+                </div>
+                <div class="form-group">
+                    <label>Status</label>
+                    <select name="invite_status" class="form-control">
+                        <option value="pending">⏳ Pending — abhi accept nahi hua</option>
+                        <option value="accepted">✅ Accepted</option>
+                        <option value="expired">⛔ Expired</option>
+                    </select>
+                </div>
+            </div>
+
+            <div class="form-row">
+                <div class="form-group">
+                    <label>Linked FB ID (agar pata ho)</label>
+                    <select name="invite_fb_account_id" class="form-control">
+                        <option value="">-- Koi nahi --</option>
+                        {% for acc in fb_accounts %}
+                        <option value="{{ acc.id }}">{{ acc.account_name }}{% if acc.location %} — {{ acc.location }}{% endif %}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label>Notes</label>
+                    <input type="text" name="invite_email_notes" class="form-control" placeholder="e.g. Admin access ka invite">
+                </div>
+            </div>
+
+            <button type="submit" class="btn btn-primary btn-sm">➕ Email Invites Add Karen</button>
+        </form>
+    </div>
+</div>
+{% endif %}
+
 {# ============ NEW: PARTNER ACCESS SECTION (Feature 4) ============ #}
 {# Sirf edit mode mein dikhega - BM save hone ke baad #}
 {% if bm %}

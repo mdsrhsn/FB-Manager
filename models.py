@@ -208,6 +208,19 @@ class BusinessManager(db.Model):
         cascade='all, delete-orphan'
     )
 
+    # Email invites (pending / accepted)
+    email_invites = db.relationship(
+        'BMInvite',
+        backref='business_manager',
+        lazy=True,
+        cascade='all, delete-orphan',
+        order_by='BMInvite.created_at.desc()'
+    )
+
+    @property
+    def pending_invites(self):
+        return [i for i in self.email_invites if (i.status or 'pending') == 'pending']
+
 
 class BMPartnerAccess(db.Model):
     """
@@ -305,6 +318,25 @@ class Group(db.Model):
         backref=db.backref('linked_groups', lazy=True)
     )
 
+    # Extra IDs jinme yeh group admin hai
+    extra_accounts = db.relationship(
+        'GroupAccount',
+        backref='group',
+        lazy=True,
+        cascade='all, delete-orphan'
+    )
+
+    @property
+    def all_account_ids(self):
+        """Main ID + extra IDs — sab milakar"""
+        ids = set()
+        if self.fb_account_id:
+            ids.add(self.fb_account_id)
+        for ga in self.extra_accounts:
+            if ga.fb_account_id:
+                ids.add(ga.fb_account_id)
+        return ids
+
 
 class ActivityLog(db.Model):
     """
@@ -323,6 +355,45 @@ class ActivityLog(db.Model):
     details = db.Column(db.Text)
     seen_by_owner = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class GroupAccount(db.Model):
+    """
+    Ek group agar kai FB IDs mein admin hai to woh extra IDs yahan.
+    Main (primary) ID Group.fb_account_id mein rehti hai.
+    """
+    __tablename__ = 'group_accounts'
+
+    id = db.Column(db.Integer, primary_key=True)
+    group_id = db.Column(db.Integer, db.ForeignKey('groups.id'), nullable=False)
+    fb_account_id = db.Column(db.Integer, db.ForeignKey('fb_accounts.id'), nullable=False)
+    role_note = db.Column(db.String(80))      # e.g. Admin / Moderator
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    fb_account = db.relationship('FBAccount', foreign_keys=[fb_account_id])
+
+    __table_args__ = (db.UniqueConstraint('group_id', 'fb_account_id', name='unique_group_account'),)
+
+
+class BMInvite(db.Model):
+    """
+    BM ka invite jo EMAIL par bheja gaya — abhi accept nahi hua.
+    Accept ho jaye to status badal kar konsi FB ID bani woh bhi link kar sakte hain.
+    """
+    __tablename__ = 'bm_invites'
+
+    id = db.Column(db.Integer, primary_key=True)
+    bm_id = db.Column(db.Integer, db.ForeignKey('business_managers.id'), nullable=False)
+    email = db.Column(db.String(160), nullable=False)
+    status = db.Column(db.String(20), default='pending')   # pending / accepted / expired
+    invited_date = db.Column(db.Date, nullable=True)
+    accepted_date = db.Column(db.Date, nullable=True)
+    # Accept hone ke baad konsi FB ID se juda (optional)
+    fb_account_id = db.Column(db.Integer, db.ForeignKey('fb_accounts.id'), nullable=True)
+    notes = db.Column(db.Text)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    fb_account = db.relationship('FBAccount', foreign_keys=[fb_account_id])
 
 
 class DailyReport(db.Model):
