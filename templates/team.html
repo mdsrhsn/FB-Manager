@@ -43,8 +43,12 @@
                     <td>{{ m.supervisor.full_name if m.supervisor else '-' }}</td>
                     <td>{{ m.phone or '-' }}</td>
                     <td>
-                        {% if m.role == 'worker' %}
-                            <span class="text-muted" style="font-size:11.5px;">Worker — sirf apne pages</span>
+                        {% if m.can_view_all_data %}
+                        <div style="font-size:11px;color:#5b21b6;font-weight:600;margin-bottom:3px;">🌐 SAB ka data</div>
+                        {% else %}
+                        <div style="font-size:11px;color:#65676b;margin-bottom:3px;">🔒 Sirf apna + assigned</div>
+                        {% endif %}
+                        {% if False %}
                         {% else %}
                         <div style="display:flex;gap:3px;flex-wrap:wrap;">
                             {% set perms = [

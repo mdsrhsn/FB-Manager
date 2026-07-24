@@ -13,7 +13,7 @@ from datetime import datetime, date, timedelta
 from functools import wraps
 from flask import Flask, render_template, redirect, url_for, request, flash, jsonify, abort
 from flask_login import LoginManager, login_user, logout_user, login_required, current_user
-from sqlalchemy import func, extract
+from sqlalchemy import func, extract, or_
 
 from models import (
     db, User, FBAccount, BusinessManager, BMPartnerAccess,
@@ -102,6 +102,199 @@ def permission_required(perm):
             return redirect(url_for('dashboard'))
         return decorated_function
     return decorator
+
+
+# ==================== DATA SCOPING ====================
+def _visible_user_ids():
+    """
+    Konse users ka data current user dekh sakta hai.
+    Supervisor apni team ka data bhi dekhta hai.
+    """
+    ids = [current_user.id]
+    if current_user.role == 'supervisor':
+        ids += [w.id for w in User.query.filter_by(supervisor_id=current_user.id).all()]
+    return ids
+
+
+def scope_records(query, model, assigned_field='assigned_user_id'):
+    """
+    Agar user ke paas 'view_all_data' nahi hai to sirf:
+      - jo usne khud add kiya, ya
+      - jo uske (ya uski team ke) naam assign hua hai
+    """
+    if current_user.sees_all_data():
+        return query
+    ids = _visible_user_ids()
+    conditions = [model.created_by_id.in_(ids)]
+    if hasattr(model, assigned_field):
+        conditions.append(getattr(model, assigned_field).in_(ids))
+    return query.filter(or_(*conditions))
+
+
+def can_access(obj, assigned_field='assigned_user_id'):
+    """Ek record par is user ka haq hai ya nahi"""
+    if current_user.sees_all_data():
+        return True
+    ids = _visible_user_ids()
+    if getattr(obj, 'created_by_id', None) in ids:
+        return True
+    if getattr(obj, assigned_field, None) in ids:
+        return True
+    return False
+
+
+def deny_access():
+    flash('Yeh record aap ko assign nahi hai. Owner se rabta karen.', 'error')
+    return redirect(url_for('dashboard'))
+
+
+def assignable_users():
+    """Dropdown ke liye — team members jinko record assign kiya ja sakta hai"""
+    return User.query.filter(User.role != 'owner', User.is_active == True).order_by(User.full_name).all()
+
+
+# ==================== DUPLICATE DETECTION ====================
+def _norm(value):
+    """Comparison ke liye — lowercase, extra spaces hata kar"""
+    if value is None:
+        return ''
+    return str(value).strip().lower()
+
+
+def _norm_url(value):
+    """URL normalize — protocol, www, trailing slash, query hata kar"""
+    v = _norm(value)
+    if not v:
+        return ''
+    for p in ('https://', 'http://'):
+        if v.startswith(p):
+            v = v[len(p):]
+    for p in ('www.', 'm.', 'mbasic.', 'web.'):
+        if v.startswith(p):
+            v = v[len(p):]
+    v = v.split('?')[0].split('#')[0].rstrip('/')
+    return v
+
+
+DUPLICATE_RULES = {
+    'fb_account': {
+        'model': lambda: FBAccount,
+        'label': 'FB Account',
+        'fields': [
+            ('account_name', 'Account Name', 'text'),
+            ('email', 'Email', 'text'),
+            ('phone', 'Phone', 'text'),
+            ('profile_username', 'Profile Username', 'text'),
+            ('profile_link', 'Profile Link', 'url'),
+        ],
+        'name_field': 'account_name',
+    },
+    'page': {
+        'model': lambda: Page,
+        'label': 'Page',
+        'fields': [
+            ('page_name', 'Page Name', 'text'),
+            ('page_url', 'Page URL', 'url'),
+        ],
+        'name_field': 'page_name',
+    },
+    'bm': {
+        'model': lambda: BusinessManager,
+        'label': 'Business Manager',
+        'fields': [
+            ('bm_name', 'BM Name', 'text'),
+            ('bm_id', 'BM ID', 'text'),
+        ],
+        'name_field': 'bm_name',
+    },
+    'group': {
+        'model': lambda: Group,
+        'label': 'Group',
+        'fields': [
+            ('group_name', 'Group Name', 'text'),
+            ('group_url', 'Group URL', 'url'),
+            ('group_fb_id', 'Group FB ID', 'text'),
+        ],
+        'name_field': 'group_fb_id',
+    },
+}
+
+
+def find_duplicate(kind, form_values, exclude_id=None):
+    """
+    Duplicate dhoondta hai — case-insensitive, URL normalize karke.
+    Returns (field_label, existing_record) ya (None, None).
+    """
+    rule = DUPLICATE_RULES.get(kind)
+    if not rule:
+        return None, None
+
+    model = rule['model']()
+    records = model.query.all()
+
+    for field, label, ftype in rule['fields']:
+        entered = form_values.get(field)
+        entered_n = _norm_url(entered) if ftype == 'url' else _norm(entered)
+        if not entered_n:
+            continue
+        for rec in records:
+            if exclude_id and rec.id == exclude_id:
+                continue
+            existing = getattr(rec, field, None)
+            existing_n = _norm_url(existing) if ftype == 'url' else _norm(existing)
+            if existing_n and existing_n == entered_n:
+                return label, rec
+    return None, None
+
+
+def duplicate_message(kind, label, record):
+    """Saaf message — kaun sa field, kis record se takra raha hai, kis ne add kiya"""
+    rule = DUPLICATE_RULES.get(kind, {})
+    entity = rule.get('label', 'Record')
+    name_field = rule.get('name_field', 'id')
+    existing_name = getattr(record, name_field, None) or f'#{record.id}'
+    who = ''
+    creator = getattr(record, 'created_by', None)
+    if creator:
+        who = f' — yeh {creator.full_name} ne add kiya tha'
+    return (f'❌ Duplicate! Yeh {label} pehle se "{existing_name}" naam ke '
+            f'{entity} mein mojood hai{who}. Dobara add nahi ho sakta.')
+
+
+@app.route('/api/check-duplicate')
+@login_required
+def api_check_duplicate():
+    """Live duplicate check — form mein type karte hi warning dikhane ke liye"""
+    kind = request.args.get('type', '')
+    field = request.args.get('field', '')
+    value = request.args.get('value', '')
+    exclude_id = request.args.get('exclude_id')
+
+    rule = DUPLICATE_RULES.get(kind)
+    if not rule or not value.strip():
+        return jsonify({'duplicate': False})
+
+    field_def = next((f for f in rule['fields'] if f[0] == field), None)
+    if not field_def:
+        return jsonify({'duplicate': False})
+
+    try:
+        exclude_id = int(exclude_id) if exclude_id else None
+    except (TypeError, ValueError):
+        exclude_id = None
+
+    label, record = find_duplicate(kind, {field: value}, exclude_id=exclude_id)
+    if record:
+        name_field = rule.get('name_field', 'id')
+        creator = getattr(record, 'created_by', None)
+        return jsonify({
+            'duplicate': True,
+            'field_label': label,
+            'existing_name': getattr(record, name_field, None) or f'#{record.id}',
+            'added_by': creator.full_name if creator else None,
+            'entity': rule['label'],
+        })
+    return jsonify({'duplicate': False})
 
 
 # ==================== ACTIVITY LOG HELPER ====================
@@ -515,7 +708,8 @@ def dashboard():
 @login_required
 @permission_required('view_fb_accounts')
 def fb_accounts():
-    accounts = FBAccount.query.order_by(FBAccount.created_at.desc()).all()
+    query = scope_records(FBAccount.query, FBAccount)
+    accounts = query.order_by(FBAccount.created_at.desc()).all()
     return render_template('fb_accounts.html', accounts=accounts)
 
 
@@ -524,7 +718,16 @@ def fb_accounts():
 @permission_required('add_edit')
 def add_fb_account():
     if request.method == 'POST':
+        # Duplicate check — same name/email/phone/username/link dobara na aaye
+        dup_label, dup_rec = find_duplicate('fb_account', request.form)
+        if dup_rec:
+            flash(duplicate_message('fb_account', dup_label, dup_rec), 'error')
+            return redirect(url_for('add_fb_account'))
+
+        assigned = request.form.get('assigned_user_id')
         account = FBAccount(
+            created_by_id=current_user.id,
+            assigned_user_id=int(assigned) if assigned else None,
             account_name=request.form.get('account_name'),
             email=request.form.get('email'),
             phone=request.form.get('phone'),
@@ -551,7 +754,7 @@ def add_fb_account():
         flash('FB Account add ho gaya (password encrypted hai)', 'success')
         return redirect(url_for('fb_accounts'))
 
-    return render_template('fb_account_form.html', account=None)
+    return render_template('fb_account_form.html', account=None, team_users=assignable_users())
 
 
 @app.route('/fb-accounts/<int:account_id>/edit', methods=['GET', 'POST'])
@@ -559,7 +762,16 @@ def add_fb_account():
 @permission_required('add_edit')
 def edit_fb_account(account_id):
     account = FBAccount.query.get_or_404(account_id)
+    if not can_access(account):
+        return deny_access()
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('fb_account', request.form, exclude_id=account.id)
+        if dup_rec:
+            flash(duplicate_message('fb_account', dup_label, dup_rec), 'error')
+            return redirect(url_for('edit_fb_account', account_id=account.id))
+        if current_user.sees_all_data():
+            assigned = request.form.get('assigned_user_id')
+            account.assigned_user_id = int(assigned) if assigned else None
         account.account_name = request.form.get('account_name')
         account.email = request.form.get('email')
         account.phone = request.form.get('phone')
@@ -592,7 +804,7 @@ def edit_fb_account(account_id):
         flash('FB Account update ho gaya', 'success')
         return redirect(url_for('fb_accounts'))
 
-    return render_template('fb_account_form.html', account=account)
+    return render_template('fb_account_form.html', account=account, team_users=assignable_users())
 
 
 @app.route('/fb-accounts/<int:account_id>/delete', methods=['POST'])
@@ -601,6 +813,8 @@ def edit_fb_account(account_id):
 def delete_fb_account(account_id):
     """Delete an FB account (only if no pages/BMs linked)"""
     account = FBAccount.query.get_or_404(account_id)
+    if not can_access(account):
+        return deny_access()
 
     page_count = len(account.pages)
     bm_count = len(account.business_managers)
@@ -731,7 +945,9 @@ def import_fb_accounts():
                     skipped_count += 1
                     continue
 
-                existing = FBAccount.query.filter_by(account_name=account_name).first()
+                dup_vals = {'account_name': account_name, 'email': col(1), 'phone': col(2),
+                            'profile_username': col(14), 'profile_link': col(13)}
+                _lbl, existing = find_duplicate('fb_account', dup_vals)
                 if existing:
                     skipped_count += 1
                     continue
@@ -769,6 +985,7 @@ def import_fb_accounts():
                     issue_type = 'none'
 
                 account = FBAccount(
+                    created_by_id=current_user.id,
                     account_name=account_name,
                     email=col(1),
                     phone=col(2),
@@ -1064,7 +1281,10 @@ def import_pages():
                     skipped += 1
                     continue
 
-                if Page.query.filter_by(page_name=page_name).first():
+                _lbl, dup = find_duplicate('page', {
+                    'page_name': page_name,
+                    'page_url': str(row[1]).strip() if len(row) > 1 and row[1] else None})
+                if dup:
                     skipped += 1
                     continue
 
@@ -1109,6 +1329,7 @@ def import_pages():
                 is_fresh = fresh_raw in ('yes', 'y', 'true', '1', 'haan')
 
                 page = Page(
+                    created_by_id=current_user.id,
                     page_name=page_name,
                     page_url=str(row[1]).strip() if len(row) > 1 and row[1] else None,
                     niche=str(row[2]).strip() if len(row) > 2 and row[2] else None,
@@ -1155,7 +1376,8 @@ def import_pages():
 @permission_required('view_bms')
 def business_managers():
     """BM list page"""
-    bms = BusinessManager.query.order_by(BusinessManager.created_at.desc()).all()
+    bms = scope_records(BusinessManager.query, BusinessManager).order_by(
+        BusinessManager.created_at.desc()).all()
     return render_template('business_managers.html', bms=bms)
 
 
@@ -1164,9 +1386,17 @@ def business_managers():
 @permission_required('add_edit')
 def add_business_manager():
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('bm', request.form)
+        if dup_rec:
+            flash(duplicate_message('bm', dup_label, dup_rec), 'error')
+            return redirect(url_for('add_business_manager'))
+
         invited_id = request.form.get('invited_to_fb_account_id')
+        assigned = request.form.get('assigned_user_id')
 
         bm = BusinessManager(
+            created_by_id=current_user.id,
+            assigned_user_id=int(assigned) if assigned else None,
             bm_name=request.form.get('bm_name'),
             bm_id=request.form.get('bm_id'),
             fb_account_id=int(request.form.get('fb_account_id')),
@@ -1182,8 +1412,9 @@ def add_business_manager():
         flash('Business Manager add ho gaya. Ab Partner Access add kar sakte hain (Edit button se).', 'success')
         return redirect(url_for('edit_business_manager', bm_id=bm.id))
 
-    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
-    return render_template('bm_form.html', bm=None, fb_accounts=fb_accounts_list, partners=[])
+    fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
+    return render_template('bm_form.html', bm=None, fb_accounts=fb_accounts_list, partners=[],
+                           team_users=assignable_users())
 
 
 @app.route('/business-managers/<int:bm_id>/edit', methods=['GET', 'POST'])
@@ -1191,7 +1422,16 @@ def add_business_manager():
 @permission_required('add_edit')
 def edit_business_manager(bm_id):
     bm = BusinessManager.query.get_or_404(bm_id)
+    if not can_access(bm):
+        return deny_access()
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('bm', request.form, exclude_id=bm.id)
+        if dup_rec:
+            flash(duplicate_message('bm', dup_label, dup_rec), 'error')
+            return redirect(url_for('edit_business_manager', bm_id=bm.id))
+        if current_user.sees_all_data():
+            assigned_u = request.form.get('assigned_user_id')
+            bm.assigned_user_id = int(assigned_u) if assigned_u else None
         invited_id = request.form.get('invited_to_fb_account_id')
 
         bm.bm_name = request.form.get('bm_name')
@@ -1209,11 +1449,12 @@ def edit_business_manager(bm_id):
         flash('Business Manager update ho gaya', 'success')
         return redirect(url_for('business_managers'))
 
-    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
     partners = BMPartnerAccess.query.filter_by(source_bm_id=bm.id).order_by(
         BMPartnerAccess.created_at.desc()
     ).all()
-    return render_template('bm_form.html', bm=bm, fb_accounts=fb_accounts_list, partners=partners)
+    return render_template('bm_form.html', bm=bm, fb_accounts=fb_accounts_list, partners=partners,
+                           team_users=assignable_users())
 
 
 @app.route('/business-managers/<int:bm_id>/delete', methods=['POST'])
@@ -1222,6 +1463,8 @@ def edit_business_manager(bm_id):
 def delete_business_manager(bm_id):
     """Delete a BM (only if no pages linked)"""
     bm = BusinessManager.query.get_or_404(bm_id)
+    if not can_access(bm):
+        return deny_access()
 
     page_count = Page.query.filter_by(bm_id=bm.id).count()
     if page_count > 0:
@@ -1405,7 +1648,10 @@ def import_business_managers():
                 if not bm_name:
                     skipped += 1
                     continue
-                if BusinessManager.query.filter_by(bm_name=bm_name).first():
+                _lbl, dup = find_duplicate('bm', {
+                    'bm_name': bm_name,
+                    'bm_id': str(row[1]).strip() if len(row) > 1 and row[1] else None})
+                if dup:
                     skipped += 1
                     continue
 
@@ -1416,6 +1662,7 @@ def import_business_managers():
                     continue
 
                 bm = BusinessManager(
+                    created_by_id=current_user.id,
                     bm_name=bm_name,
                     bm_id=str(row[1]).strip() if len(row) > 1 and row[1] else None,
                     fb_account_id=fb_acc.id,
@@ -1573,14 +1820,17 @@ def pages():
     # Role-based filtering
     if current_user.is_worker():
         pages_list = Page.query.filter_by(assigned_worker_id=current_user.id, is_active=True).all()
-    elif current_user.is_supervisor():
+    elif current_user.is_supervisor() and not current_user.sees_all_data():
         team_worker_ids = [w.id for w in User.query.filter_by(supervisor_id=current_user.id).all()]
         pages_list = Page.query.filter(
-            Page.assigned_worker_id.in_(team_worker_ids),
+            or_(Page.assigned_worker_id.in_(team_worker_ids + [current_user.id]),
+                Page.created_by_id.in_(team_worker_ids + [current_user.id])),
             Page.is_active == True
-        ).all() if team_worker_ids else []
-    else:  # owner
-        pages_list = Page.query.filter_by(is_active=True).order_by(Page.created_at.desc()).all()
+        ).all()
+    else:  # owner ya supervisor jise sab dikhta hai
+        pages_list = scope_records(
+            Page.query.filter_by(is_active=True), Page, assigned_field='assigned_worker_id'
+        ).order_by(Page.created_at.desc()).all()
 
     return render_template('pages.html', pages=pages_list)
 
@@ -1590,9 +1840,15 @@ def pages():
 @permission_required('add_edit')
 def add_page():
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('page', request.form)
+        if dup_rec:
+            flash(duplicate_message('page', dup_label, dup_rec), 'error')
+            return redirect(url_for('add_page'))
+
         is_fresh = request.form.get('is_fresh_start') == 'yes'
 
         page = Page(
+            created_by_id=current_user.id,
             page_name=request.form.get('page_name'),
             page_url=request.form.get('page_url'),
             niche=request.form.get('niche'),
@@ -1618,9 +1874,9 @@ def add_page():
         flash('Page add ho gaya', 'success')
         return redirect(url_for('pages'))
 
-    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
     workers = User.query.filter(User.role.in_(['worker', 'supervisor']), User.is_active == True).all()
-    bms = BusinessManager.query.filter_by(status='active').all()
+    bms = scope_records(BusinessManager.query.filter_by(status='active'), BusinessManager).all()
     return render_template('page_form.html', page=None, fb_accounts=fb_accounts_list, workers=workers, bms=bms)
 
 
@@ -1629,7 +1885,13 @@ def add_page():
 @permission_required('add_edit')
 def edit_page(page_id):
     page = Page.query.get_or_404(page_id)
+    if not can_access(page, assigned_field='assigned_worker_id'):
+        return deny_access()
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('page', request.form, exclude_id=page.id)
+        if dup_rec:
+            flash(duplicate_message('page', dup_label, dup_rec), 'error')
+            return redirect(url_for('edit_page', page_id=page.id))
         is_fresh = request.form.get('is_fresh_start') == 'yes'
 
         page.page_name = request.form.get('page_name')
@@ -1657,9 +1919,9 @@ def edit_page(page_id):
         flash('Page update ho gaya', 'success')
         return redirect(url_for('pages'))
 
-    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
+    fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
     workers = User.query.filter(User.role.in_(['worker', 'supervisor']), User.is_active == True).all()
-    bms = BusinessManager.query.filter_by(status='active').all()
+    bms = scope_records(BusinessManager.query.filter_by(status='active'), BusinessManager).all()
     return render_template('page_form.html', page=page, fb_accounts=fb_accounts_list, workers=workers, bms=bms)
 
 
@@ -1669,6 +1931,8 @@ def edit_page(page_id):
 def delete_page(page_id):
     """Delete a page (reports bhi delete ho jayen ge)"""
     page = Page.query.get_or_404(page_id)
+    if not can_access(page, assigned_field='assigned_worker_id'):
+        return deny_access()
 
     report_count = DailyReport.query.filter_by(page_id=page.id).count()
     page_name = page.page_name
@@ -1695,7 +1959,7 @@ def delete_page(page_id):
 @permission_required('view_groups')
 def groups():
     """Saare groups ki list"""
-    groups_list = Group.query.order_by(Group.created_at.desc()).all()
+    groups_list = scope_records(Group.query, Group).order_by(Group.created_at.desc()).all()
     return render_template('groups.html', groups=groups_list)
 
 
@@ -1704,10 +1968,18 @@ def groups():
 @permission_required('add_edit')
 def add_group():
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('group', request.form)
+        if dup_rec:
+            flash(duplicate_message('group', dup_label, dup_rec), 'error')
+            return redirect(url_for('add_group'))
+
         page_id = request.form.get('page_id')
         fb_account_id = request.form.get('fb_account_id')
+        assigned = request.form.get('assigned_user_id')
 
         group = Group(
+            created_by_id=current_user.id,
+            assigned_user_id=int(assigned) if assigned else None,
             group_name=request.form.get('group_name'),
             group_url=request.form.get('group_url') or None,
             group_fb_id=request.form.get('group_fb_id') or None,
@@ -1723,9 +1995,11 @@ def add_group():
         flash('Group add ho gaya', 'success')
         return redirect(url_for('groups'))
 
-    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
-    pages_list = Page.query.filter_by(is_active=True).order_by(Page.page_name).all()
-    return render_template('group_form.html', group=None, fb_accounts=fb_accounts_list, pages=pages_list)
+    fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
+    pages_list = scope_records(Page.query.filter_by(is_active=True), Page,
+                               assigned_field='assigned_worker_id').order_by(Page.page_name).all()
+    return render_template('group_form.html', group=None, fb_accounts=fb_accounts_list,
+                           pages=pages_list, team_users=assignable_users())
 
 
 @app.route('/groups/<int:group_id>/edit', methods=['GET', 'POST'])
@@ -1733,7 +2007,16 @@ def add_group():
 @permission_required('add_edit')
 def edit_group(group_id):
     group = Group.query.get_or_404(group_id)
+    if not can_access(group):
+        return deny_access()
     if request.method == 'POST':
+        dup_label, dup_rec = find_duplicate('group', request.form, exclude_id=group.id)
+        if dup_rec:
+            flash(duplicate_message('group', dup_label, dup_rec), 'error')
+            return redirect(url_for('edit_group', group_id=group.id))
+        if current_user.sees_all_data():
+            assigned_u = request.form.get('assigned_user_id')
+            group.assigned_user_id = int(assigned_u) if assigned_u else None
         page_id = request.form.get('page_id')
         fb_account_id = request.form.get('fb_account_id')
 
@@ -1751,9 +2034,11 @@ def edit_group(group_id):
         flash('Group update ho gaya', 'success')
         return redirect(url_for('groups'))
 
-    fb_accounts_list = FBAccount.query.filter_by(status='active').all()
-    pages_list = Page.query.filter_by(is_active=True).order_by(Page.page_name).all()
-    return render_template('group_form.html', group=group, fb_accounts=fb_accounts_list, pages=pages_list)
+    fb_accounts_list = scope_records(FBAccount.query.filter_by(status='active'), FBAccount).all()
+    pages_list = scope_records(Page.query.filter_by(is_active=True), Page,
+                               assigned_field='assigned_worker_id').order_by(Page.page_name).all()
+    return render_template('group_form.html', group=group, fb_accounts=fb_accounts_list,
+                           pages=pages_list, team_users=assignable_users())
 
 
 @app.route('/groups/<int:group_id>/delete', methods=['POST'])
@@ -1761,6 +2046,8 @@ def edit_group(group_id):
 @permission_required('delete')
 def delete_group(group_id):
     group = Group.query.get_or_404(group_id)
+    if not can_access(group):
+        return deny_access()
     group_name = group.group_name
     members = group.members_count or 0
     db.session.delete(group)
@@ -1869,7 +2156,11 @@ def import_groups():
                 if not group_name:
                     skipped += 1
                     continue
-                if Group.query.filter_by(group_name=group_name).first():
+                _lbl, dup = find_duplicate('group', {
+                    'group_name': group_name,
+                    'group_url': str(row[1]).strip() if len(row) > 1 and row[1] else None,
+                    'group_fb_id': str(row[2]).strip() if len(row) > 2 and row[2] else None})
+                if dup:
                     skipped += 1
                     continue
 
@@ -1886,6 +2177,7 @@ def import_groups():
                     status = 'active'
 
                 group = Group(
+                    created_by_id=current_user.id,
                     group_name=group_name,
                     group_url=str(row[1]).strip() if len(row) > 1 and row[1] else None,
                     group_fb_id=str(row[2]).strip() if len(row) > 2 and row[2] else None,
@@ -2013,10 +2305,23 @@ def add_team_member():
             phone=request.form.get('phone'),
             supervisor_id=int(request.form.get('supervisor_id')) if request.form.get('supervisor_id') else None
         )
+        # Naye member ko by default kuch nazar nahi aata — owner permissions deta hai
+        if user.role == 'worker':
+            for f in ['can_view_fb_accounts', 'can_view_passwords', 'can_view_bms',
+                      'can_view_groups', 'can_view_team', 'can_add_edit', 'can_delete',
+                      'can_export', 'can_view_all_data']:
+                setattr(user, f, False)
+        else:
+            user.can_view_passwords = False
+            user.can_delete = False
+            user.can_export = False
+            user.can_view_all_data = False
+        user.perms_initialized = True
         user.set_password(request.form.get('password'))
         db.session.add(user)
         db.session.commit()
-        flash(f'{user.full_name} add ho gaya', 'success')
+        log_activity('create', 'Team Member', user.full_name, f'Role: {user.role}')
+        flash(f'{user.full_name} add ho gaya — ab Team page se permissions set karen', 'success')
         return redirect(url_for('team'))
 
     supervisors = User.query.filter_by(role='supervisor', is_active=True).all()
@@ -2135,6 +2440,7 @@ PERMISSION_FIELDS = [
     ('can_add_edit', '➕ Naya add / edit kar sakta hai (import bhi)'),
     ('can_delete', '🗑️ Delete kar sakta hai'),
     ('can_export', '📤 Excel download / export kar sakta hai'),
+    ('can_view_all_data', '🌐 SAB ka data dekh sakta hai (off = sirf apna + assigned)'),
 ]
 
 

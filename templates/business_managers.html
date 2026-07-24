@@ -55,6 +55,7 @@
                     <th>🎁 Invited To</th>
                     <th>Pages</th>
                     <th>Status</th>
+                    {% if can('view_all_data') %}<th>👤 Added / Assigned</th>{% endif %}
                     <th>Action</th>
                 </tr>
             </thead>
@@ -113,6 +114,13 @@
 
                     <td>{{ bm.fb_account.pages|length if bm.fb_account else 0 }}</td>
                     <td><span class="status-badge status-{{ bm.status }}">{{ bm.status }}</span></td>
+                    {% if can('view_all_data') %}
+                    <td style="font-size:11.5px;">
+                        {% if bm.created_by %}<div style="color:#65676b;">➕ {{ bm.created_by.full_name }}</div>{% endif %}
+                        {% if bm.assigned_user %}<div style="color:#5b21b6;font-weight:600;">🎯 {{ bm.assigned_user.full_name }}</div>{% endif %}
+                        {% if not bm.created_by and not bm.assigned_user %}<span class="text-muted">-</span>{% endif %}
+                    </td>
+                    {% endif %}
                     <td>
                         <div style="display: flex; gap: 4px;">
                             {% if can('add_edit') %}
@@ -132,7 +140,7 @@
                     </td>
                 </tr>
                 {% else %}
-                <tr><td colspan="8" class="text-center text-muted">Koi Business Manager add nahi kiya</td></tr>
+                <tr><td colspan="9" class="text-center text-muted">Koi Business Manager add nahi kiya</td></tr>
                 {% endfor %}
             </tbody>
         </table>

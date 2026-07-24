@@ -5,109 +5,82 @@
 <div class="card" style="max-width: 800px;">
     <form method="POST" autocomplete="off">
         <h3 style="margin-bottom: 16px; color: #1877F2;">📝 Basic Info</h3>
-        
+
         <div class="form-group">
             <label>Account Name *</label>
-            <input type="text" name="account_name" class="form-control" required value="{{ account.account_name if account else '' }}">
+            <input type="text" name="account_name" id="acc_name_f" class="form-control" required
+                   value="{{ account.account_name if account else '' }}">
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label>Email</label>
-                <input type="email" name="email" class="form-control" value="{{ account.email if account else '' }}" autocomplete="off">
+                <input type="email" name="email" id="acc_email_f" class="form-control"
+                       value="{{ account.email if account else '' }}" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>Phone</label>
-                <input type="text" name="phone" class="form-control" value="{{ account.phone if account else '' }}" autocomplete="off">
+                <input type="text" name="phone" id="acc_phone_f" class="form-control"
+                       value="{{ account.phone if account else '' }}" autocomplete="off">
             </div>
         </div>
-        
-        {# ============ NEW FIELDS: Location, DOB ============ #}
+
         <div class="form-row">
             <div class="form-group">
                 <label>🌍 Location (Country)</label>
-                <input type="text" name="location" class="form-control" 
-                       list="country-list"
-                       value="{{ account.location if account else '' }}" 
-                       placeholder="e.g. Pakistan, USA, Finland, India"
-                       autocomplete="off">
+                <input type="text" name="location" class="form-control" list="country-list"
+                       value="{{ account.location if account else '' }}"
+                       placeholder="e.g. Pakistan, USA, Finland, India" autocomplete="off">
                 <datalist id="country-list">
-                    <option value="Pakistan">
-                    <option value="India">
-                    <option value="USA">
-                    <option value="UK">
-                    <option value="Canada">
-                    <option value="Australia">
-                    <option value="Finland">
-                    <option value="Germany">
-                    <option value="France">
-                    <option value="Italy">
-                    <option value="Spain">
-                    <option value="Netherlands">
-                    <option value="Sweden">
-                    <option value="Norway">
-                    <option value="Denmark">
-                    <option value="Poland">
-                    <option value="Brazil">
-                    <option value="Mexico">
-                    <option value="Japan">
-                    <option value="South Korea">
-                    <option value="Singapore">
-                    <option value="UAE">
-                    <option value="Saudi Arabia">
-                    <option value="Turkey">
-                    <option value="Egypt">
-                    <option value="South Africa">
-                    <option value="Nigeria">
-                    <option value="Indonesia">
-                    <option value="Philippines">
-                    <option value="Vietnam">
-                    <option value="Thailand">
-                    <option value="Malaysia">
-                    <option value="Bangladesh">
+                    <option value="Pakistan"><option value="India"><option value="USA">
+                    <option value="UK"><option value="Canada"><option value="Australia">
+                    <option value="Finland"><option value="Germany"><option value="France">
+                    <option value="Italy"><option value="Spain"><option value="Netherlands">
+                    <option value="Sweden"><option value="Norway"><option value="Denmark">
+                    <option value="Poland"><option value="Brazil"><option value="Mexico">
+                    <option value="Japan"><option value="South Korea"><option value="Singapore">
+                    <option value="UAE"><option value="Saudi Arabia"><option value="Turkey">
+                    <option value="Egypt"><option value="South Africa"><option value="Nigeria">
+                    <option value="Indonesia"><option value="Philippines"><option value="Vietnam">
+                    <option value="Thailand"><option value="Malaysia"><option value="Bangladesh">
                 </datalist>
                 <small style="color: #65676b; font-size: 12px;">FB ID kis country se register ki hai</small>
             </div>
             <div class="form-group">
                 <label>🎂 Date of Birth (Optional)</label>
-                <input type="date" name="date_of_birth" class="form-control" 
+                <input type="date" name="date_of_birth" class="form-control"
                        value="{{ account.date_of_birth.strftime('%Y-%m-%d') if account and account.date_of_birth else '' }}">
-                <small style="color: #65676b; font-size: 12px;">FB ID par jo DOB set hai</small>
             </div>
         </div>
-        
-        {# ============ NEW FIELD: Profile Link + Auto Username Fetch ============ #}
+
         <div class="form-group">
             <label>🔗 Profile Link</label>
-            <input type="url" name="profile_link" id="profile_link" class="form-control" 
-                   value="{{ account.profile_link if account else '' }}" 
-                   placeholder="https://facebook.com/username"
-                   autocomplete="off"
+            <input type="url" name="profile_link" id="profile_link" class="form-control"
+                   value="{{ account.profile_link if account else '' }}"
+                   placeholder="https://facebook.com/username" autocomplete="off"
                    oninput="autoFetchUsername()">
-            <small style="color: #65676b; font-size: 12px;">FB profile ka pura URL — username auto-detect hoga niche</small>
+            <small style="color: #65676b; font-size: 12px;">Username auto-detect hoga niche</small>
         </div>
-        
+
         <div class="form-group">
-            <label>👤 Profile Username 
-                <span id="username-badge" style="display: none; font-size: 11px; padding: 2px 8px; border-radius: 4px; margin-left: 6px;"></span>
+            <label>👤 Profile Username
+                <span id="username-badge" style="display:none;font-size:11px;padding:2px 8px;border-radius:4px;margin-left:6px;"></span>
             </label>
-            <input type="text" name="profile_username" id="profile_username" class="form-control" 
-                   value="{{ account.profile_username if account else '' }}" 
-                   placeholder="Auto-fill hoga profile link se... ya manually likh sakte hain"
-                   autocomplete="off">
+            <input type="text" name="profile_username" id="profile_username" class="form-control"
+                   value="{{ account.profile_username if account else '' }}"
+                   placeholder="Auto-fill hoga profile link se... ya manually likhen" autocomplete="off">
             <small style="color: #65676b; font-size: 12px;">
-                🤖 Automatic detect hota hai profile link se. Agar galat detect ho to manually change kar sakte hain.
+                🤖 Automatic detect hota hai. Galat ho to khud change kar sakte hain.
             </small>
         </div>
-        
+
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
-        
-        {# ============ NEW FIELD: Issue Status ============ #}
+
         <h3 style="margin-bottom: 16px; color: #f59e0b;">⚠️ Issue Status</h3>
         <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
             Agar iss FB ID mein koi masla hai to yahan track karen
         </p>
-        
+
         <div class="form-group">
             <label>Issue Type</label>
             <select name="issue_type" id="issue_type" class="form-control" onchange="toggleIssueNotes()">
@@ -120,70 +93,74 @@
                 <option value="other" {% if account and account.issue_type == 'other' %}selected{% endif %}>📝 Doosra issue (notes mein likhen)</option>
             </select>
         </div>
-        
+
         <div class="form-group" id="issue_notes_group" style="{% if not account or account.issue_type == 'none' %}display:none;{% endif %}">
             <label>Issue Notes (Detailed)</label>
-            <textarea name="issue_notes" id="issue_notes" class="form-control" rows="3" 
-                      placeholder="Issue ki tafseel likhen — kya ho raha hai, kab shuru hua, etc.">{{ account.issue_notes if account and account.issue_notes else '' }}</textarea>
+            <textarea name="issue_notes" class="form-control" rows="3"
+                      placeholder="Issue ki tafseel likhen...">{{ account.issue_notes if account and account.issue_notes else '' }}</textarea>
         </div>
-        
+
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
-        
+
         <h3 style="margin-bottom: 16px; color: #d62976;">🔐 Login Credentials (Encrypted)</h3>
         <p style="color: #65676b; font-size: 13px; margin-bottom: 16px;">
-            ⚠️ Yeh sensitive data hai — sirf owner ke liye visible
+            ⚠️ Yeh sensitive data hai — sirf unhen dikhta hai jinko aap ijazat den
         </p>
-        
+
         <div class="form-group">
-            <label>FB Password {% if account and account.fb_password %}<span style="color: #28a745; font-size: 12px;">(Already saved, encrypted — khali rakhen agar change nahi karna)</span>{% endif %}</label>
+            <label>FB Password
+                {% if account and account.fb_password %}
+                <span style="color: #28a745; font-size: 12px;">(Already saved — khali rakhen agar change nahi karna)</span>
+                {% endif %}
+            </label>
             <div style="position: relative;">
-                <input type="password" name="fb_password" id="fb_password" class="form-control" 
-                       value="{{ account.get_fb_password() if account else '' }}" 
-                       autocomplete="new-password"
-                       style="padding-right: 50px;">
-                <button type="button" onclick="togglePassword('fb_password', this)" 
-                        style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 4px 8px; font-size: 13px; color: #1877F2;">
+                <input type="password" name="fb_password" id="fb_password" class="form-control"
+                       value="{{ account.get_fb_password() if account else '' }}"
+                       autocomplete="new-password" style="padding-right: 50px;">
+                <button type="button" onclick="togglePassword('fb_password', this)"
+                        style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px 8px;font-size:13px;color:#1877F2;">
                     👁️ Show
                 </button>
             </div>
         </div>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label>Recovery Email</label>
-                <input type="email" name="recovery_email" class="form-control" 
+                <input type="email" name="recovery_email" class="form-control"
                        value="{{ account.recovery_email if account else '' }}" autocomplete="off">
             </div>
             <div class="form-group">
                 <label>2FA Backup Code</label>
                 <div style="position: relative;">
-                    <input type="password" name="two_fa_code" id="two_fa_code" class="form-control" 
-                           value="{{ account.get_two_fa_code() if account else '' }}" 
-                           autocomplete="off"
-                           style="padding-right: 50px;">
-                    <button type="button" onclick="togglePassword('two_fa_code', this)" 
-                            style="position: absolute; right: 8px; top: 50%; transform: translateY(-50%); background: none; border: none; cursor: pointer; padding: 4px 8px; font-size: 13px; color: #1877F2;">
+                    <input type="password" name="two_fa_code" id="two_fa_code" class="form-control"
+                           value="{{ account.get_two_fa_code() if account else '' }}"
+                           autocomplete="off" style="padding-right: 50px;">
+                    <button type="button" onclick="togglePassword('two_fa_code', this)"
+                            style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;padding:4px 8px;font-size:13px;color:#1877F2;">
                         👁️ Show
                     </button>
                 </div>
             </div>
         </div>
-        
+
         <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
-        
+
         <h3 style="margin-bottom: 16px; color: #42b72a;">💰 Purchase Details</h3>
-        
+
         <div class="form-row">
             <div class="form-group">
                 <label>Purchase Date</label>
-                <input type="date" name="purchase_date" class="form-control" value="{{ account.purchase_date.strftime('%Y-%m-%d') if account and account.purchase_date else '' }}">
+                <input type="date" name="purchase_date" class="form-control"
+                       value="{{ account.purchase_date.strftime('%Y-%m-%d') if account and account.purchase_date else '' }}">
             </div>
             <div class="form-group">
                 <label>Purchase Cost (PKR)</label>
-                <input type="number" step="0.01" name="purchase_cost" class="form-control" value="{{ account.purchase_cost if account else 0 }}">
+                <input type="number" step="0.01" name="purchase_cost" class="form-control"
+                       value="{{ account.purchase_cost if account else 0 }}">
             </div>
         </div>
-        
+
         <div class="form-group">
             <label>Status</label>
             <select name="status" class="form-control">
@@ -192,12 +169,39 @@
                 {% endfor %}
             </select>
         </div>
-        
+
         <div class="form-group">
             <label>Notes</label>
             <textarea name="notes" class="form-control" rows="3">{{ account.notes if account else '' }}</textarea>
         </div>
-        
+
+        {% if can('view_all_data') and team_users %}
+        <hr style="margin: 20px 0; border: none; border-top: 1px solid #e4e6eb;">
+        <h3 style="margin-bottom: 12px; color: #7c3aed;">🎯 Kis Ko Assign Karen</h3>
+        <p style="color:#65676b;font-size:13px;margin-bottom:14px;">
+            Jis member ko assign karen ge sirf usay (aur uske supervisor ko) yeh FB ID nazar aayegi —
+            agar us member ka "SAB ka data" access band hai.
+        </p>
+        <div class="form-group">
+            <label>Assigned To</label>
+            <select name="assigned_user_id" class="form-control">
+                <option value="">-- Kisi ko nahi (sirf aap ko dikhega) --</option>
+                {% for u in team_users %}
+                <option value="{{ u.id }}" {% if account and account.assigned_user_id == u.id %}selected{% endif %}>
+                    {{ u.full_name }} ({{ u.role }})
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        {% endif %}
+
+        {% if account and account.created_by %}
+        <div style="font-size:12px;color:#8a8d91;margin-bottom:12px;">
+            Add kiya: <strong>{{ account.created_by.full_name }}</strong>
+            {% if account.created_at %} — {{ account.created_at.strftime('%d %b %Y') }}{% endif %}
+        </div>
+        {% endif %}
+
         <div class="flex">
             <button type="submit" class="btn btn-primary">{% if account %}Update{% else %}Save{% endif %}</button>
             <a href="{{ url_for('fb_accounts') }}" class="btn btn-secondary">Cancel</a>
@@ -206,114 +210,60 @@
 </div>
 
 <script>
-// Password field toggle
 function togglePassword(fieldId, btn) {
     const field = document.getElementById(fieldId);
-    if (field.type === 'password') {
-        field.type = 'text';
-        btn.innerHTML = '🙈 Hide';
-    } else {
-        field.type = 'password';
-        btn.innerHTML = '👁️ Show';
-    }
+    if (field.type === 'password') { field.type = 'text'; btn.innerHTML = '🙈 Hide'; }
+    else { field.type = 'password'; btn.innerHTML = '👁️ Show'; }
 }
 
-// Issue notes show/hide based on type
 function toggleIssueNotes() {
     const type = document.getElementById('issue_type').value;
-    const notesGroup = document.getElementById('issue_notes_group');
-    if (type === 'none') {
-        notesGroup.style.display = 'none';
-    } else {
-        notesGroup.style.display = 'block';
-    }
+    document.getElementById('issue_notes_group').style.display = (type === 'none') ? 'none' : 'block';
 }
 
-// ============ AUTO-FETCH USERNAME FROM PROFILE LINK (Feature 10) ============
+// ============ AUTO-FETCH USERNAME FROM PROFILE LINK ============
 function extractUsernameFromUrl(url) {
     if (!url) return null;
-    
     try {
-        // Clean URL
-        url = url.trim().replace(/\/+$/, '');
-        
-        // Remove protocol
-        url = url.replace(/^https?:\/\//, '');
-        
-        // Remove common prefixes
-        url = url.replace(/^(www\.|m\.|mbasic\.|web\.)/, '');
-        
-        // Must be facebook.com or fb.com
-        if (!url.startsWith('facebook.com/') && !url.startsWith('fb.com/')) {
-            return null;
-        }
-        
-        // Extract path
-        let path = url.startsWith('facebook.com/') 
-            ? url.substring('facebook.com/'.length)
-            : url.substring('fb.com/'.length);
-        
+        url = url.trim().replace(/\/+$/, '').replace(/^https?:\/\//, '')
+                 .replace(/^(www\.|m\.|mbasic\.|web\.)/, '');
+        if (!url.startsWith('facebook.com/') && !url.startsWith('fb.com/')) return null;
+        let path = url.startsWith('facebook.com/')
+            ? url.substring('facebook.com/'.length) : url.substring('fb.com/'.length);
         if (!path) return null;
-        
-        // Handle profile.php?id=NUMBER
         if (path.startsWith('profile.php')) {
-            const match = url.match(/[?&]id=(\d+)/);
-            if (match) return 'id_' + match[1];
-            return null;
+            const m = url.match(/[?&]id=(\d+)/);
+            return m ? 'id_' + m[1] : null;
         }
-        
-        // Handle people/Name/ID format
         if (path.startsWith('people/')) {
             const parts = path.split('/');
-            if (parts.length >= 3) {
-                return 'people_' + parts[1] + '_' + parts[2].split('?')[0].split('#')[0];
-            }
-            return null;
+            return parts.length >= 3 ? 'people_' + parts[1] + '_' + parts[2].split('?')[0] : null;
         }
-        
-        // Remove query string and fragment
-        path = path.split('?')[0].split('#')[0];
-        
-        // Get first path segment
-        const username = path.split('/')[0];
-        
-        if (!username) return null;
-        
-        // Basic validation - only allow valid chars
-        if (!/^[a-zA-Z0-9._-]+$/.test(username)) return null;
-        
+        const username = path.split('?')[0].split('#')[0].split('/')[0];
+        if (!username || !/^[a-zA-Z0-9._-]+$/.test(username)) return null;
         return username;
-    } catch (e) {
-        return null;
-    }
+    } catch (e) { return null; }
 }
 
 function autoFetchUsername() {
     const linkInput = document.getElementById('profile_link');
     const usernameInput = document.getElementById('profile_username');
     const badge = document.getElementById('username-badge');
-    
     const url = linkInput.value.trim();
-    if (!url) {
-        badge.style.display = 'none';
-        return;
-    }
-    
+    if (!url) { badge.style.display = 'none'; return; }
+
     const extracted = extractUsernameFromUrl(url);
-    
     if (extracted) {
-        // Only auto-fill if the field is empty OR was previously auto-filled
         if (!usernameInput.value || usernameInput.dataset.autoFilled === 'true') {
             usernameInput.value = extracted;
             usernameInput.dataset.autoFilled = 'true';
+            usernameInput.dispatchEvent(new Event('input'));
         }
-        // Show green badge
         badge.textContent = '✅ Auto-detected';
         badge.style.display = 'inline-block';
         badge.style.background = '#d1fae5';
         badge.style.color = '#047857';
     } else {
-        // Show warning badge
         badge.textContent = '⚠️ Auto-detect fail — manually likhen';
         badge.style.display = 'inline-block';
         badge.style.background = '#fef3c7';
@@ -321,17 +271,58 @@ function autoFetchUsername() {
     }
 }
 
-// Mark as manually edited if user types in username field
-document.getElementById('profile_username')?.addEventListener('input', function() {
+document.getElementById('profile_username')?.addEventListener('input', function () {
     this.dataset.autoFilled = 'false';
 });
 
-// Run on page load if link is already filled (edit mode)
-window.addEventListener('DOMContentLoaded', function() {
-    const linkVal = document.getElementById('profile_link')?.value;
-    if (linkVal) {
-        autoFetchUsername();
-    }
+window.addEventListener('DOMContentLoaded', function () {
+    if (document.getElementById('profile_link')?.value) autoFetchUsername();
 });
+</script>
+
+<script>
+// ============ LIVE DUPLICATE CHECK ============
+function attachDupCheck(kind, fieldMap, excludeId) {
+    Object.keys(fieldMap).forEach(function (inputId) {
+        var input = document.getElementById(inputId);
+        if (!input) return;
+        var warn = document.createElement('div');
+        warn.style.cssText = 'font-size:12px;margin-top:4px;min-height:16px;';
+        input.parentNode.insertBefore(warn, input.nextSibling);
+        var timer = null;
+        input.addEventListener('input', function () {
+            clearTimeout(timer);
+            var val = input.value.trim();
+            if (!val) { warn.textContent = ''; input.style.borderColor = ''; return; }
+            timer = setTimeout(function () {
+                var url = '/api/check-duplicate?type=' + kind +
+                          '&field=' + encodeURIComponent(fieldMap[inputId]) +
+                          '&value=' + encodeURIComponent(val) +
+                          (excludeId ? '&exclude_id=' + excludeId : '');
+                fetch(url).then(function (r) { return r.json(); }).then(function (d) {
+                    if (d.duplicate) {
+                        warn.innerHTML = '⛔ <strong>Duplicate!</strong> Yeh ' + d.field_label +
+                            ' pehle se "' + d.existing_name + '" mein mojood hai' +
+                            (d.added_by ? ' (' + d.added_by + ' ne add kiya)' : '');
+                        warn.style.color = '#dc2626';
+                        input.style.borderColor = '#dc2626';
+                    } else {
+                        warn.innerHTML = '✅ Available';
+                        warn.style.color = '#047857';
+                        input.style.borderColor = '#10b981';
+                    }
+                }).catch(function () { warn.textContent = ''; });
+            }, 450);
+        });
+    });
+}
+
+attachDupCheck('fb_account', {
+    'acc_name_f': 'account_name',
+    'acc_email_f': 'email',
+    'acc_phone_f': 'phone',
+    'profile_username': 'profile_username',
+    'profile_link': 'profile_link'
+}, {% if account %}{{ account.id }}{% else %}null{% endif %});
 </script>
 {% endblock %}

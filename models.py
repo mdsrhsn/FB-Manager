@@ -37,16 +37,24 @@ class User(db.Model, UserMixin):
     can_add_edit = db.Column(db.Boolean, default=True)          # naya add / edit kar sakta hai
     can_delete = db.Column(db.Boolean, default=False)           # delete kar sakta hai
     can_export = db.Column(db.Boolean, default=False)           # Excel download kar sakta hai
+    # Data scope: True = sab ka data dikhega | False = sirf apna + jo assign kiya gaya
+    can_view_all_data = db.Column(db.Boolean, default=False)
+    perms_initialized = db.Column(db.Boolean, default=False)    # ek dafa defaults set karne ke liye
 
     workers = db.relationship('User', backref=db.backref('supervisor', remote_side=[id]))
 
     def has_perm(self, perm):
-        """Permission check — owner ke paas hamesha sab kuch hai"""
+        """
+        Permission check — owner ke paas hamesha sab kuch hai.
+        Supervisor AUR worker dono ke liye owner ke diye hue flags chalte hain.
+        """
         if self.role == 'owner':
             return True
-        if self.role == 'worker':
-            return False
         return bool(getattr(self, 'can_' + perm, False))
+
+    def sees_all_data(self):
+        """Kya yeh user sab ka data dekh sakta hai?"""
+        return self.role == 'owner' or bool(self.can_view_all_data)
 
     def set_password(self, password):
         self.password_hash = generate_password_hash(password)
@@ -62,6 +70,34 @@ class User(db.Model, UserMixin):
 
     def is_worker(self):
         return self.role == 'worker'
+
+
+@db.event.listens_for(User, 'before_insert')
+def _apply_role_permission_defaults(mapper, connection, target):
+    """
+    Naya user kisi bhi raaste se bane (form, Excel import, script) —
+    role ke hisaab se mehfooz defaults khud lag jayen.
+    Owner permissions baad mein badal sakta hai.
+    """
+    if target.perms_initialized:
+        return
+    if target.role == 'owner':
+        for f in ['can_view_fb_accounts', 'can_view_passwords', 'can_view_bms',
+                  'can_view_groups', 'can_view_team', 'can_add_edit', 'can_delete',
+                  'can_export', 'can_view_all_data']:
+            setattr(target, f, True)
+    elif target.role == 'worker':
+        # Worker ko by default kuch nazar nahi aata jab tak owner ijazat na de
+        for f in ['can_view_fb_accounts', 'can_view_passwords', 'can_view_bms',
+                  'can_view_groups', 'can_view_team', 'can_add_edit', 'can_delete',
+                  'can_export', 'can_view_all_data']:
+            setattr(target, f, False)
+    else:  # supervisor
+        target.can_view_passwords = False
+        target.can_delete = False
+        target.can_export = False
+        target.can_view_all_data = False
+    target.perms_initialized = True
 
 
 class FBAccount(db.Model):
@@ -81,6 +117,10 @@ class FBAccount(db.Model):
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # ============ V3: kis ne banaya / kis ko assign hai ============
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
     # ============ V2 FIELDS ============
     location = db.Column(db.String(80))  # Feature 1: Pakistan, USA, Finland...
     issue_type = db.Column(db.String(30), default='none')  # Feature 2
@@ -90,6 +130,8 @@ class FBAccount(db.Model):
     date_of_birth = db.Column(db.Date)
 
     # Relationships
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+    assigned_user = db.relationship('User', foreign_keys=[assigned_user_id])
     pages = db.relationship('Page', backref='fb_account', lazy=True)
     business_managers = db.relationship(
         'BusinessManager',
@@ -137,6 +179,10 @@ class BusinessManager(db.Model):
     status = db.Column(db.String(20), default='active')
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # ============ V3: ownership ============
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
     # ============ V2 FIELDS: Invite tracking (Feature 5) ============
     invited_to_fb_account_id = db.Column(
         db.Integer,
@@ -151,6 +197,8 @@ class BusinessManager(db.Model):
         foreign_keys=[invited_to_fb_account_id],
         backref=db.backref('bm_invites_received', lazy=True)
     )
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+    assigned_user = db.relationship('User', foreign_keys=[assigned_user_id])
 
     # Feature 4: partner access records
     partner_accesses = db.relationship(
@@ -207,8 +255,12 @@ class Page(db.Model):
     page_status = db.Column(db.String(20), default='active')
     page_status_notes = db.Column(db.Text)
 
+    # ============ V3: kis ne banaya ============
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
     # Relationships
     assigned_worker = db.relationship('User', foreign_keys=[assigned_worker_id])
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
     business_manager = db.relationship('BusinessManager', foreign_keys=[bm_id])
     daily_reports = db.relationship('DailyReport', backref='page', lazy=True)
 
@@ -239,6 +291,13 @@ class Group(db.Model):
     status = db.Column(db.String(20), default='active')
     notes = db.Column(db.Text)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # ============ V3: ownership ============
+    created_by_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+    assigned_user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True)
+
+    created_by = db.relationship('User', foreign_keys=[created_by_id])
+    assigned_user = db.relationship('User', foreign_keys=[assigned_user_id])
 
     fb_account = db.relationship(
         'FBAccount',
@@ -422,6 +481,11 @@ def init_db(app):
             if 'date_of_birth' not in existing_cols:
                 migrations.append(('date_of_birth', 'DATE'))
 
+            if 'created_by_id' not in existing_cols:
+                migrations.append(('created_by_id', 'INTEGER'))
+            if 'assigned_user_id' not in existing_cols:
+                migrations.append(('assigned_user_id', 'INTEGER'))
+
             for col_name, col_type in migrations:
                 all_migrations.append(('fb_accounts', col_name, col_type))
 
@@ -437,6 +501,8 @@ def init_db(app):
                 ('can_add_edit', True),
                 ('can_delete', False),
                 ('can_export', False),
+                ('can_view_all_data', False),
+                ('perms_initialized', False),
             ]
             for col_name, default_true in perm_defaults:
                 if col_name not in existing_cols:
@@ -454,6 +520,11 @@ def init_db(app):
                 migrations.append(('invite_date', 'DATE'))
             if 'invite_notes' not in existing_cols:
                 migrations.append(('invite_notes', 'TEXT'))
+
+            if 'created_by_id' not in existing_cols:
+                migrations.append(('created_by_id', 'INTEGER'))
+            if 'assigned_user_id' not in existing_cols:
+                migrations.append(('assigned_user_id', 'INTEGER'))
 
             for col_name, col_type in migrations:
                 all_migrations.append(('business_managers', col_name, col_type))
@@ -477,9 +548,19 @@ def init_db(app):
                 migrations.append(('page_status', "VARCHAR(20) DEFAULT 'active'"))
             if 'page_status_notes' not in existing_cols:
                 migrations.append(('page_status_notes', 'TEXT'))
+            if 'created_by_id' not in existing_cols:
+                migrations.append(('created_by_id', 'INTEGER'))
 
             for col_name, col_type in migrations:
                 all_migrations.append(('pages', col_name, col_type))
+
+        # ---- groups new columns ----
+        if 'groups' in inspector.get_table_names():
+            existing_cols = [col['name'] for col in inspector.get_columns('groups')]
+            if 'created_by_id' not in existing_cols:
+                all_migrations.append(('groups', 'created_by_id', 'INTEGER'))
+            if 'assigned_user_id' not in existing_cols:
+                all_migrations.append(('groups', 'assigned_user_id', 'INTEGER'))
 
         # ---- Apply all migrations ----
         if all_migrations:
@@ -491,6 +572,38 @@ def init_db(app):
                         print(f"Migration: Added column '{table_name}.{col_name}'")
                     except Exception as e:
                         print(f"Migration warning for {table_name}.{col_name}: {e}")
+
+        # ---- Ek dafa permission defaults set karen (safety) ----
+        # Workers ko by default kuch nazar nahi aata jab tak owner ijazat na de.
+        # Supervisors ko dekhne ka access milta hai lekin export/delete/passwords nahi.
+        try:
+            uninitialized = User.query.filter(
+                (User.perms_initialized == False) | (User.perms_initialized.is_(None))
+            ).all()
+            for u in uninitialized:
+                if u.role == 'worker':
+                    u.can_view_fb_accounts = False
+                    u.can_view_passwords = False
+                    u.can_view_bms = False
+                    u.can_view_groups = False
+                    u.can_view_team = False
+                    u.can_add_edit = False
+                    u.can_delete = False
+                    u.can_export = False
+                    u.can_view_all_data = False
+                elif u.role == 'supervisor':
+                    u.can_view_passwords = False
+                    u.can_delete = False
+                    u.can_export = False
+                    if u.can_view_all_data is None:
+                        u.can_view_all_data = False
+                u.perms_initialized = True
+            if uninitialized:
+                db.session.commit()
+                print(f"Permissions initialized for {len(uninitialized)} user(s)")
+        except Exception as e:
+            db.session.rollback()
+            print(f"Permission init skipped: {e}")
 
         # Default owner user banao agar nahi hai
         if not User.query.filter_by(role='owner').first():

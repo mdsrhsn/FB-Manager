@@ -73,6 +73,7 @@
                     <th>👥 Followers</th>
                     <th>Worker</th>
                     <th>Status</th>
+                    {% if can('view_all_data') %}<th>👤 Added By</th>{% endif %}
                     {% if can('add_edit') or can('delete') %}<th>Action</th>{% endif %}
                 </tr>
             </thead>
@@ -158,6 +159,11 @@
                     <td><span class="status-badge status-{{ p.monetization_status }}">
                         {{ p.monetization_status.replace('_', ' ').title() }}
                     </span></td>
+                    {% if can('view_all_data') %}
+                    <td style="font-size:11.5px;color:#65676b;">
+                        {{ p.created_by.full_name if p.created_by else '-' }}
+                    </td>
+                    {% endif %}
                     {% if can('add_edit') or can('delete') %}
                     <td>
                         <div style="display: flex; gap: 4px;">
@@ -179,7 +185,7 @@
                     {% endif %}
                 </tr>
                 {% else %}
-                <tr><td colspan="11" class="text-center text-muted">Koi page nahi mila</td></tr>
+                <tr><td colspan="12" class="text-center text-muted">Koi page nahi mila</td></tr>
                 {% endfor %}
             </tbody>
         </table>
