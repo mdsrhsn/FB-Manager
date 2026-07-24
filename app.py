@@ -116,31 +116,68 @@ def _visible_user_ids():
     return ids
 
 
+def _my_page_links():
+    """
+    Jo pages is user ko assign hain ya usne banaye —
+    unki page IDs, FB account IDs aur BM IDs return karta hai.
+    Isi se worker ko apne page ki FB ID / BM / Group bhi nazar aata hai.
+    """
+    ids = _visible_user_ids()
+    rows = db.session.query(Page.id, Page.fb_account_id, Page.bm_id).filter(
+        or_(Page.assigned_worker_id.in_(ids), Page.created_by_id.in_(ids))
+    ).all()
+    page_ids = {r[0] for r in rows if r[0]}
+    account_ids = {r[1] for r in rows if r[1]}
+    bm_ids = {r[2] for r in rows if r[2]}
+    return page_ids, account_ids, bm_ids
+
+
 def scope_records(query, model, assigned_field='assigned_user_id'):
     """
     Agar user ke paas 'view_all_data' nahi hai to sirf:
-      - jo usne khud add kiya, ya
+      - jo usne khud add kiya
       - jo uske (ya uski team ke) naam assign hua hai
+      - AUR jo uske assigned pages se juda hua hai (FB ID / BM / Group)
     """
     if current_user.sees_all_data():
         return query
+
     ids = _visible_user_ids()
-    conditions = [model.created_by_id.in_(ids)]
+    conditions = []
+
+    if hasattr(model, 'created_by_id'):
+        conditions.append(model.created_by_id.in_(ids))
     if hasattr(model, assigned_field):
         conditions.append(getattr(model, assigned_field).in_(ids))
+
+    # ---- Derived visibility: apne pages ke zariye ----
+    if model is FBAccount:
+        _pg, account_ids, _bm = _my_page_links()
+        if account_ids:
+            conditions.append(FBAccount.id.in_(account_ids))
+    elif model is BusinessManager:
+        _pg, _acc, bm_ids = _my_page_links()
+        if bm_ids:
+            conditions.append(BusinessManager.id.in_(bm_ids))
+    elif model is Group:
+        page_ids, account_ids, _bm = _my_page_links()
+        if page_ids:
+            conditions.append(Group.page_id.in_(page_ids))
+        if account_ids:
+            conditions.append(Group.fb_account_id.in_(account_ids))
+
+    if not conditions:
+        return query.filter(False)
     return query.filter(or_(*conditions))
 
 
 def can_access(obj, assigned_field='assigned_user_id'):
-    """Ek record par is user ka haq hai ya nahi"""
+    """Ek record par is user ka haq hai ya nahi (wahi logic jo list par lagta hai)"""
     if current_user.sees_all_data():
         return True
-    ids = _visible_user_ids()
-    if getattr(obj, 'created_by_id', None) in ids:
-        return True
-    if getattr(obj, assigned_field, None) in ids:
-        return True
-    return False
+    model = type(obj)
+    scoped = scope_records(model.query.filter(model.id == obj.id), model, assigned_field)
+    return scoped.first() is not None
 
 
 def deny_access():
@@ -161,18 +198,50 @@ def _norm(value):
     return str(value).strip().lower()
 
 
+# Facebook ke tracking parameters — inhen ignore karna hai
+TRACKING_PARAMS = {
+    'fbclid', 'ref', 'refid', 'refsrc', '__tn__', '__cft__', '__xts__', 'mibextid',
+    'sfnsn', 'extid', 'locale', 'locale2', '_rdr', 'rdid', 'share_url', 'mid',
+    'notif_id', 'notif_t', 'idorvanity', 'eav', 'paipv', 'source', 'utm_source',
+    'utm_medium', 'utm_campaign', 'hoisted_section_header_type', 'comment_id',
+}
+
+
 def _norm_url(value):
-    """URL normalize — protocol, www, trailing slash, query hata kar"""
+    """
+    URL normalize — protocol / www / m. / trailing slash hata kar.
+    ZAROORI: profile.php?id=123 jaise URLs mein 'id' rakhna hai warna
+    har profile URL doosre jaisa lagega. Sirf tracking params hatate hain.
+    """
     v = _norm(value)
     if not v:
         return ''
     for p in ('https://', 'http://'):
         if v.startswith(p):
             v = v[len(p):]
-    for p in ('www.', 'm.', 'mbasic.', 'web.'):
+    for p in ('www.', 'm.', 'mbasic.', 'web.', 'free.', 'touch.'):
         if v.startswith(p):
             v = v[len(p):]
-    v = v.split('?')[0].split('#')[0].rstrip('/')
+
+    v = v.split('#')[0]
+
+    if '?' in v:
+        path, query = v.split('?', 1)
+        kept = []
+        for part in query.split('&'):
+            if not part or '=' not in part:
+                continue
+            key, val = part.split('=', 1)
+            key = key.strip()
+            val = val.strip()
+            if not key or not val or key in TRACKING_PARAMS:
+                continue
+            kept.append((key, val))
+        kept.sort()
+        path = path.rstrip('/')
+        v = path + ('?' + '&'.join(f'{k}={val}' for k, val in kept) if kept else '')
+    else:
+        v = v.rstrip('/')
     return v
 
 
