@@ -533,39 +533,31 @@ def dashboard():
             key = a.status or 'active'
             acc_status_map[key] = acc_status_map.get(key, 0) + 1
 
-        # ---------- PAGES ----------
-        all_pages = Page.query.filter_by(is_active=True).all()
-        total_followers = sum(p.current_followers or 0 for p in all_pages)
-        fresh_start_pages = sum(1 for p in all_pages if p.is_fresh_start)
+        # ==================== PAGES ====================
+@app.route('/pages')
+@login_required
+def pages():
+    # Role-based filtering
+    if current_user.is_worker():
+        pages_list = Page.query.filter(
+            or_(Page.assigned_worker_id == current_user.id,
+                Page.created_by_id == current_user.id),
+            Page.is_active == True
+        ).order_by(Page.created_at.desc()).all()
+    elif current_user.is_supervisor() and not current_user.sees_all_data():
+        team_worker_ids = [w.id for w in User.query.filter_by(supervisor_id=current_user.id).all()]
+        visible_ids = team_worker_ids + [current_user.id]
+        pages_list = Page.query.filter(
+            or_(Page.assigned_worker_id.in_(visible_ids),
+                Page.created_by_id.in_(visible_ids)),
+            Page.is_active == True
+        ).order_by(Page.created_at.desc()).all()
+    else:  # owner ya supervisor jise sab dikhta hai
+        pages_list = scope_records(
+            Page.query.filter_by(is_active=True), Page, assigned_field='assigned_worker_id'
+        ).order_by(Page.created_at.desc()).all()
 
-        niche_map = {}
-        for p in all_pages:
-            key = (p.niche or '').strip() or 'Not Set'
-            niche_map[key] = niche_map.get(key, 0) + 1
-        niche_data = sorted(niche_map.items(), key=lambda x: x[1], reverse=True)
-
-        reco_okay = sum(1 for p in all_pages if (p.recommendation or 'okay') == 'okay')
-        reco_not_okay = len(all_pages) - reco_okay
-
-        PSTATUS_LABELS = {
-            'active': 'Active', 'suspended': 'Suspended', 'flagged': 'Flagged',
-            'restricted': 'Restricted', 'unpublished': 'Unpublished',
-            'under_review': 'Under Review', 'deleted': 'Deleted',
-        }
-        pstatus_map = {}
-        for p in all_pages:
-            key = p.page_status or 'active'
-            pstatus_map[key] = pstatus_map.get(key, 0) + 1
-        pstatus_data = [(PSTATUS_LABELS.get(k, k), v) for k, v in
-                        sorted(pstatus_map.items(), key=lambda x: x[1], reverse=True)]
-        pages_status_active = pstatus_map.get('active', 0)
-        pages_problem = len(all_pages) - pages_status_active
-
-        # Top pages by followers
-        top_followers_pages = sorted(
-            [p for p in all_pages if (p.current_followers or 0) > 0],
-            key=lambda p: p.current_followers or 0, reverse=True
-        )[:10]
+    return render_template('pages.html', pages=pages_list)
 
         # ---------- GROUPS ----------
         all_groups = Group.query.all()
